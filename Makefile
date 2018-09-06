@@ -27,7 +27,7 @@ all: format generate build test
 .PHONY: build
 build: operator prometheus-config-reloader
 
-operator: $(GOLANG_FILES)
+operator:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
 	-ldflags "-X github.com/coreos/prometheus-operator/pkg/version.Version=$(shell cat VERSION)" \
 	-o $@ cmd/operator/main.go
