@@ -1,8 +1,15 @@
 reviewers:
-  - brancz
-  - mxinden
-  - squat
+- brancz
+- mxinden
+- elad661
+- ironcladlou
+- squat
+- s-urbaniak
+
 approvers:
-  - brancz
-  - mxinden
-  - squat
+- brancz
+- mxinden
+- elad661
+- ironcladlou
+- squat
+- s-urbaniak
