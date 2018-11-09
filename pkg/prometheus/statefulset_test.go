@@ -54,8 +54,21 @@ func TestStatefulSetLabelingAndAnnotations(t *testing.T) {
 
 	require.NoError(t, err)
 
-	if !reflect.DeepEqual(labels, sset.Labels) || !reflect.DeepEqual(annotations, sset.Annotations) {
-		t.Fatal("Labels or Annotations are not properly being propagated to the StatefulSet")
+	if !reflect.DeepEqual(labels, sset.Labels) {
+		fmt.Println(pretty.Compare(labels, sset.Labels))
+		t.Fatal("Labels are not properly being propagated to the StatefulSet")
+	}
+
+	expectedAnnotations := map[string]string{
+		"prometheus-operator-input-hash": "",
+	}
+	for k, v := range annotations {
+		expectedAnnotations[k] = v
+	}
+
+	if !reflect.DeepEqual(expectedAnnotations, sset.Annotations) {
+		fmt.Println(pretty.Compare(expectedAnnotations, sset.Annotations))
+		t.Fatal("Annotations are not properly being propagated to the StatefulSet")
 	}
 }
 
@@ -385,5 +398,87 @@ func TestThanosTagAndVersion(t *testing.T) {
 	expected := "improbable/thanos:my-unrelated-tag"
 	if image != expected {
 		t.Fatalf("Unexpected container image.\n\nExpected: %s\n\nGot: %s", expected, image)
+	}
+}
+
+func TestThanosResourcesNotSet(t *testing.T) {
+	sset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{
+			Thanos: &monitoringv1.ThanosSpec{},
+		},
+	}, appsv1.OrderedReadyPodManagement, defaultTestConfig, nil, "")
+	if err != nil {
+		t.Fatalf("Unexpected error while making StatefulSet: %v", err)
+	}
+
+	res := sset.Spec.Template.Spec.Containers[2].Resources
+	if res.Limits != nil || res.Requests != nil {
+		t.Fatalf("Unexpected resources defined. \n\nExpected: nil\n\nGot: %v, %v", res.Limits, res.Requests)
+	}
+}
+
+func TestThanosResourcesSet(t *testing.T) {
+	expected := v1.ResourceRequirements{
+		Limits: v1.ResourceList{
+			v1.ResourceCPU:    resource.MustParse("125m"),
+			v1.ResourceMemory: resource.MustParse("75Mi"),
+		},
+		Requests: v1.ResourceList{
+			v1.ResourceCPU:    resource.MustParse("100m"),
+			v1.ResourceMemory: resource.MustParse("50Mi"),
+		},
+	}
+	sset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{
+			Thanos: &monitoringv1.ThanosSpec{
+				Resources: expected,
+			},
+		},
+	}, appsv1.OrderedReadyPodManagement, defaultTestConfig, nil, "")
+	if err != nil {
+		t.Fatalf("Unexpected error while making StatefulSet: %v", err)
+	}
+
+	actual := sset.Spec.Template.Spec.Containers[2].Resources
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("Unexpected resources defined. \n\nExpected: %v\n\nGot: %v", expected, actual)
+	}
+}
+
+func TestRetention(t *testing.T) {
+	tests := []struct {
+		version              string
+		specRetention        string
+		expectedRetentionArg string
+	}{
+		{"v1.8.2", "", "-storage.local.retention=24h"},
+		{"v1.8.2", "1d", "-storage.local.retention=1d"},
+		{"v2.3.1", "", "--storage.tsdb.retention=24h"},
+		{"v2.3.1", "1d", "--storage.tsdb.retention=1d"},
+	}
+
+	for _, test := range tests {
+		sset, err := makeStatefulSet(monitoringv1.Prometheus{
+			Spec: monitoringv1.PrometheusSpec{
+				Version:   test.version,
+				Retention: test.specRetention,
+			},
+		}, "", defaultTestConfig, nil, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		promArgs := sset.Spec.Template.Spec.Containers[0].Args
+		found := false
+		for _, flag := range promArgs {
+			if flag == test.expectedRetentionArg {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			t.Fatalf("expected Prometheus args to contain %v, but got %v", test.expectedRetentionArg, promArgs)
+		}
 	}
 }

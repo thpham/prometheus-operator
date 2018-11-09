@@ -32,6 +32,7 @@ This stack is meant for cluster monitoring, so it is pre-configured to collect m
 * [Minikube Example](#minikube-example)
 * [Troubleshooting](#troubleshooting)
     * [Error retrieving kubelet metrics](#error-retrieving-kubelet-metrics)
+* [Contributing](#contributing)
 
 ## Prerequisites
 
@@ -362,6 +363,8 @@ Should the Prometheus `/targets` page show kubelet targets, but not able to succ
 
 As described in the [prerequisites](#prerequisites) section, in order to retrieve metrics from the kubelet token authentication and authorization must be enabled. Some Kubernetes setup tools do not enable this by default.
 
+If you are using Google's GKE product, see [docs/GKE-cadvisor-support.md].
+
 #### Authentication problem
 
 The Prometheus `/targets` page will show the kubelet job with the error `403 Unauthorized`, when token authentication is not enabled. Ensure, that the `--authentication-token-webhook=true` flag is enabled on all kubelet configurations.
@@ -369,3 +372,35 @@ The Prometheus `/targets` page will show the kubelet job with the error `403 Una
 #### Authorization problem
 
 The Prometheus `/targets` page will show the kubelet job with the error `401 Unauthorized`, when token authorization is not enabled. Ensure that the `--authorization-mode=Webhook` flag is enabled on all kubelet configurations.
+
+### kube-state-metrics resource usage
+
+In some environments, kube-state-metrics may need additional
+resources. One driver for more resource needs, is a high number of
+namespaces. There may be others.
+
+kube-state-metrics resource allocation is managed by
+[addon-resizer](https://github.com/kubernetes/autoscaler/tree/master/addon-resizer/nanny)
+You can control it's parameters by setting variables in the
+config. They default to:
+
+``` jsonnet
+    kubeStateMetrics+:: {
+      baseCPU: '100m',
+      cpuPerNode: '2m',
+      baseMemory: '150Mi',
+      memoryPerNode: '30Mi',
+    }
+```
+
+## Contributing
+
+All `.yaml` files in the `/manifests` folder are generated via
+[Jsonnet](https://jsonnet.org/). Contributing changes will most likely include
+the following process:
+
+1. Make your changes in the respective `*.jsonnet` file.
+2. Commit your changes (This is currently necessary due to our vendoring
+   process. This is likely to change in the future).
+3. Generate dependent `*.yaml` files: `make generate-in-docker`.
+4. Commit the generated changes.

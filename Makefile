@@ -27,7 +27,7 @@ all: format generate build test
 .PHONY: build
 build: operator prometheus-config-reloader
 
-operator: $(GOLANG_FILES)
+operator:
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
 	-ldflags "-X github.com/coreos/prometheus-operator/pkg/version.Version=$(shell cat VERSION)" \
 	-o $@ cmd/operator/main.go
@@ -65,11 +65,11 @@ hack/operator-image: Dockerfile operator
 	docker build -t $(REPO):$(TAG) .
 	touch $@
 
-hack/prometheus-config-reloader-image: cmd/prometheus-config-reloader/Dockerfile prometheus-config-reloader
+hack/prometheus-config-reloader-image: Dockerfile.config-reloader prometheus-config-reloader
 # Create empty target file, for the sole purpose of recording when this target
 # was last executed via the last-modification timestamp on the file. See
 # https://www.gnu.org/software/make/manual/make.html#Empty-Targets
-	docker build -t $(REPO_PROMETHEUS_CONFIG_RELOADER):$(TAG) -f cmd/prometheus-config-reloader/Dockerfile .
+	docker build -t $(REPO_PROMETHEUS_CONFIG_RELOADER):$(TAG) -f Dockerfile.config-reloader .
 	touch $@
 
 
@@ -78,7 +78,7 @@ hack/prometheus-config-reloader-image: cmd/prometheus-config-reloader/Dockerfile
 ##############
 
 .PHONY: generate
-generate: pkg/client/monitoring/v1/zz_generated.deepcopy.go pkg/client/monitoring/v1/openapi_generated.go jsonnet/prometheus-operator/**-crd.libsonnet bundle.yaml kube-prometheus Documentation/*
+generate: pkg/client/monitoring/v1/zz_generated.deepcopy.go pkg/client/monitoring/v1/openapi_generated.go $(shell find jsonnet/prometheus-operator/*-crd.libsonnet -type f) bundle.yaml kube-prometheus $(shell find Documentation -type f)
 
 .PHONY: generate-in-docker
 generate-in-docker: hack/jsonnet-docker-image
@@ -98,7 +98,7 @@ example/prometheus-operator-crd/**.crd.yaml: pkg/client/monitoring/v1/openapi_ge
 	po-crdgen servicemonitor > example/prometheus-operator-crd/servicemonitor.crd.yaml
 	po-crdgen prometheusrule > example/prometheus-operator-crd/prometheusrule.crd.yaml
 
-jsonnet/prometheus-operator/**-crd.libsonnet: example/prometheus-operator-crd/**.crd.yaml $(GOJSONTOYAML_BINARY)
+jsonnet/prometheus-operator/**-crd.libsonnet: $(shell find example/prometheus-operator-crd/*.crd.yaml -type f) $(GOJSONTOYAML_BINARY)
 	cat example/prometheus-operator-crd/alertmanager.crd.yaml   | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/alertmanager-crd.libsonnet
 	cat example/prometheus-operator-crd/prometheus.crd.yaml     | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/prometheus-crd.libsonnet
 	cat example/prometheus-operator-crd/servicemonitor.crd.yaml | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/servicemonitor-crd.libsonnet
@@ -113,7 +113,7 @@ pkg/client/monitoring/v1/openapi_generated.go: pkg/client/monitoring/v1/types.go
 bundle.yaml: $(shell find example/rbac/prometheus-operator/*.yaml -type f)
 	hack/generate-bundle.sh
 
-hack/generate/vendor: $(JB_BINARY) jsonnet/prometheus-operator/**
+hack/generate/vendor: $(JB_BINARY) $(shell find jsonnet/prometheus-operator -type f)
 	cd hack/generate; $(JB_BINARY) install;
 
 example/non-rbac/prometheus-operator.yaml: hack/generate/vendor hack/generate/prometheus-operator-non-rbac.jsonnet $(shell find jsonnet -type f)
@@ -158,7 +158,7 @@ check-license:
 
 .PHONY: shellcheck
 shellcheck:
-	docker run -v "${PWD}:/mnt" koalaman/shellcheck:stable $(shell find -type f -name "*.sh" -not -path "*vendor*")
+	docker run -v "${PWD}:/mnt" koalaman/shellcheck:stable $(shell find . -type f -name "*.sh" -not -path "*vendor*")
 
 
 ###########
@@ -215,7 +215,7 @@ $(JB_BINARY):
 $(PO_CRDGEN_BINARY): cmd/po-crdgen/main.go pkg/client/monitoring/v1/openapi_generated.go
 	go install github.com/coreos/prometheus-operator/cmd/po-crdgen
 
-$(PO_DOCGEN_BINARY): cmd/po-docgen/**.go
+$(PO_DOCGEN_BINARY): $(shell find cmd/po-docgen -type f) pkg/client/monitoring/v1/types.go
 	go install github.com/coreos/prometheus-operator/cmd/po-docgen
 
 $(OPENAPI_GEN_BINARY):
