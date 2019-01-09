@@ -1,9 +1,14 @@
+## 0.27.0 / 2019-01-08
+
+* [FEATURE] Add `image` field to specify full Prometheus, Alertmanager and Thanos images.
+* [FEATURE] Add prometheus query options (lookback-delta, max-concurrency, timeout).
+
 ## 0.26.0 / 2018-11-30
 
 * [CHANGE] Remove attempting to set "secure" security context (#2109).
 * [CHANGE] Remove deprecated StorageSpec fields (#2132).
 * [ENHANCEMENT] Better handling for pod/node labels from ServiceMonitors (#2089).
-* [ENHANCEMENT] Update to Proemtheus v2.5.0 as default (#2101).
+* [ENHANCEMENT] Update to Prometheus v2.5.0 as default (#2101).
 * [ENHANCEMENT] Update to Alertmanager v0.15.3 as default (#2128).
 * [ENHANCEMENT] Increase CPU limits for small containers to not being throttled as much (#2144).
 * [BUGFIX] Sanitize thanos secret volume mount name (#2159).

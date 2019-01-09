@@ -45,6 +45,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.PrometheusRuleSpec":    schema_pkg_apis_monitoring_v1_PrometheusRuleSpec(ref),
 		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.PrometheusSpec":        schema_pkg_apis_monitoring_v1_PrometheusSpec(ref),
 		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.PrometheusStatus":      schema_pkg_apis_monitoring_v1_PrometheusStatus(ref),
+		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.QuerySpec":             schema_pkg_apis_monitoring_v1_QuerySpec(ref),
 		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.QueueConfig":           schema_pkg_apis_monitoring_v1_QueueConfig(ref),
 		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.RelabelConfig":         schema_pkg_apis_monitoring_v1_RelabelConfig(ref),
 		"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.RemoteReadSpec":        schema_pkg_apis_monitoring_v1_RemoteReadSpec(ref),
@@ -532,6 +533,13 @@ func schema_pkg_apis_monitoring_v1_AlertmanagerSpec(ref common.ReferenceCallback
 						SchemaProps: spec.SchemaProps{
 							Description: "Standard object’s metadata. More info: https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata Metadata Labels and Annotations gets propagated to the prometheus pods.",
 							Ref:         ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"image": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Alertmanager is being configured.",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"version": {
@@ -1253,6 +1261,13 @@ func schema_pkg_apis_monitoring_v1_PrometheusSpec(ref common.ReferenceCallback) 
 							Format:      "",
 						},
 					},
+					"image": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Prometheus is being configured.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 					"baseImage": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Base image to use for a Prometheus deployment.",
@@ -1334,6 +1349,12 @@ func schema_pkg_apis_monitoring_v1_PrometheusSpec(ref common.ReferenceCallback) 
 							Description: "The route prefix Prometheus registers HTTP handlers for. This is useful, if using ExternalURL and a proxy is rewriting HTTP routes of a request, and the actual ExternalURL is still true, but the server serves requests under a different route prefix. For example for use with `kubectl proxy`.",
 							Type:        []string{"string"},
 							Format:      "",
+						},
+					},
+					"query": {
+						SchemaProps: spec.SchemaProps{
+							Description: "QuerySpec defines the query command line flags when starting Prometheus.",
+							Ref:         ref("github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.QuerySpec"),
 						},
 					},
 					"storage": {
@@ -1527,7 +1548,7 @@ func schema_pkg_apis_monitoring_v1_PrometheusSpec(ref common.ReferenceCallback) 
 			},
 		},
 		Dependencies: []string{
-			"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.APIServerConfig", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.AlertingSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.RemoteReadSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.RemoteWriteSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.StorageSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.ThanosSpec", "k8s.io/api/core/v1.Affinity", "k8s.io/api/core/v1.Container", "k8s.io/api/core/v1.LocalObjectReference", "k8s.io/api/core/v1.PodSecurityContext", "k8s.io/api/core/v1.ResourceRequirements", "k8s.io/api/core/v1.SecretKeySelector", "k8s.io/api/core/v1.Toleration", "k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+			"github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.APIServerConfig", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.AlertingSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.QuerySpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.RemoteReadSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.RemoteWriteSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.StorageSpec", "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1.ThanosSpec", "k8s.io/api/core/v1.Affinity", "k8s.io/api/core/v1.Container", "k8s.io/api/core/v1.LocalObjectReference", "k8s.io/api/core/v1.PodSecurityContext", "k8s.io/api/core/v1.ResourceRequirements", "k8s.io/api/core/v1.SecretKeySelector", "k8s.io/api/core/v1.Toleration", "k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
 	}
 }
 
@@ -1574,6 +1595,40 @@ func schema_pkg_apis_monitoring_v1_PrometheusStatus(ref common.ReferenceCallback
 					},
 				},
 				Required: []string{"paused", "replicas", "updatedReplicas", "availableReplicas", "unavailableReplicas"},
+			},
+		},
+		Dependencies: []string{},
+	}
+}
+
+func schema_pkg_apis_monitoring_v1_QuerySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "QuerySpec defines the query command line flags when starting Prometheus.",
+				Properties: map[string]spec.Schema{
+					"lookbackDelta": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The delta difference allowed for retrieving metrics during expression evaluations.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"maxConcurrency": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Number of concurrent queries that can be run at once.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"timeout": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Maximum time a query may take before being aborted.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
 			},
 		},
 		Dependencies: []string{},
@@ -2314,6 +2369,13 @@ func schema_pkg_apis_monitoring_v1_ThanosSpec(ref common.ReferenceCallback) comm
 					"peers": {
 						SchemaProps: spec.SchemaProps{
 							Description: "Peers is a DNS name for Thanos to discover peers through.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"image": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Thanos is being configured.",
 							Type:        []string{"string"},
 							Format:      "",
 						},
