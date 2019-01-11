@@ -43,10 +43,13 @@ clean:
 build: operator prometheus-config-reloader k8s-gen
 
 .PHONY: operator
-operator: $(GOLANG_FILES)
+operator: $(GOLANG_FILES) operator-no-deps
+
+.PHONY: operator-no-deps
+operator-no-deps:
 	GOOS=linux CGO_ENABLED=0 go build \
 	-ldflags "-X $(GO_PKG)/pkg/version.Version=$(shell cat VERSION)" \
-	-o $@ cmd/operator/main.go
+	-o operator cmd/operator/main.go
 
 .PHONY: prometheus-config-reloader
 prometheus-config-reloader:
