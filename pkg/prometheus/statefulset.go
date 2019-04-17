@@ -594,12 +594,6 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 				fmt.Sprintf("--webhook-url=%s", localReloadURL),
 			},
 			VolumeMounts: []v1.VolumeMount{},
-			Resources: v1.ResourceRequirements{
-				Limits: v1.ResourceList{
-					v1.ResourceCPU:    resource.MustParse("25m"),
-					v1.ResourceMemory: resource.MustParse("10Mi"),
-				},
-			},
 		}
 
 		for _, name := range ruleConfigMapNames {
@@ -816,12 +810,6 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 						Command:      []string{"/bin/prometheus-config-reloader"},
 						Args:         configReloadArgs,
 						VolumeMounts: configReloadVolumeMounts,
-						Resources: v1.ResourceRequirements{
-							Limits: v1.ResourceList{
-								v1.ResourceCPU:    resource.MustParse("50m"),
-								v1.ResourceMemory: resource.MustParse("50Mi"),
-							},
-						},
 					},
 				}, additionalContainers...),
 				SecurityContext:               securityContext,
@@ -829,9 +817,9 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 				NodeSelector:                  p.Spec.NodeSelector,
 				PriorityClassName:             p.Spec.PriorityClassName,
 				TerminationGracePeriodSeconds: &terminationGracePeriod,
-				Volumes:                       volumes,
-				Tolerations:                   p.Spec.Tolerations,
-				Affinity:                      p.Spec.Affinity,
+				Volumes:     volumes,
+				Tolerations: p.Spec.Tolerations,
+				Affinity:    p.Spec.Affinity,
 			},
 		},
 	}, nil
