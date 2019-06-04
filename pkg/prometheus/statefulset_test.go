@@ -21,8 +21,8 @@ import (
 
 	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1beta2"
-	"k8s.io/api/core/v1"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -31,9 +31,12 @@ import (
 
 var (
 	defaultTestConfig = &Config{
-		ConfigReloaderImage:        "quay.io/coreos/configmap-reload:latest",
-		PrometheusDefaultBaseImage: "quay.io/prometheus/prometheus",
-		ThanosDefaultBaseImage:     "improbable/thanos",
+		ConfigReloaderImage:           "quay.io/coreos/configmap-reload:latest",
+		ConfigReloaderCPU:             "100m",
+		ConfigReloaderMemory:          "25Mi",
+		PrometheusConfigReloaderImage: "quay.io/coreos/prometheus-config-reloader:latest",
+		PrometheusDefaultBaseImage:    "quay.io/prometheus/prometheus",
+		ThanosDefaultBaseImage:        "improbable/thanos",
 	}
 )
 
@@ -566,6 +569,46 @@ func TestThanosResourcesSet(t *testing.T) {
 	}
 }
 
+func TestThanosObjectStorage(t *testing.T) {
+	testKey := "thanos-config-secret-test"
+
+	sset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{
+			Thanos: &monitoringv1.ThanosSpec{
+				ObjectStorageConfig: &v1.SecretKeySelector{
+					Key: testKey,
+				},
+			},
+		},
+	}, defaultTestConfig, nil, "")
+	if err != nil {
+		t.Fatalf("Unexpected error while making StatefulSet: %v", err)
+	}
+
+	var containsEnvVar bool
+	for _, env := range sset.Spec.Template.Spec.Containers[2].Env {
+		if env.Name == "OBJSTORE_CONFIG" {
+			if env.ValueFrom.SecretKeyRef.Key == testKey {
+				containsEnvVar = true
+			}
+		}
+	}
+	if !containsEnvVar {
+		t.Fatalf("Thanos sidecar is missing expected OBJSTORE_CONFIG env var with correct value")
+	}
+
+	var containsArg bool
+	const expectedArg = "--objstore.config=$(OBJSTORE_CONFIG)"
+	for _, arg := range sset.Spec.Template.Spec.Containers[2].Args {
+		if arg == expectedArg {
+			containsArg = true
+		}
+	}
+	if !containsArg {
+		t.Fatalf("Thanos sidecar is missing expected argument: %s", expectedArg)
+	}
+}
+
 func TestRetention(t *testing.T) {
 	tests := []struct {
 		version              string
@@ -576,6 +619,8 @@ func TestRetention(t *testing.T) {
 		{"v1.8.2", "1d", "-storage.local.retention=1d"},
 		{"v2.5.0", "", "--storage.tsdb.retention=24h"},
 		{"v2.5.0", "1d", "--storage.tsdb.retention=1d"},
+		{"v2.7.0", "", "--storage.tsdb.retention.time=24h"},
+		{"v2.7.0", "1d", "--storage.tsdb.retention.time=1d"},
 	}
 
 	for _, test := range tests {
@@ -600,6 +645,105 @@ func TestRetention(t *testing.T) {
 
 		if !found {
 			t.Fatalf("expected Prometheus args to contain %v, but got %v", test.expectedRetentionArg, promArgs)
+		}
+	}
+}
+
+func TestSidecarsNoCPULimits(t *testing.T) {
+	testConfig := &Config{
+		ConfigReloaderImage:           "quay.io/coreos/configmap-reload:latest",
+		ConfigReloaderCPU:             "0",
+		ConfigReloaderMemory:          "50Mi",
+		PrometheusConfigReloaderImage: "quay.io/coreos/prometheus-config-reloader:latest",
+		PrometheusDefaultBaseImage:    "quay.io/prometheus/prometheus",
+		ThanosDefaultBaseImage:        "improbable/thanos",
+	}
+	sset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{},
+	}, testConfig, nil, "")
+	if err != nil {
+		t.Fatalf("Unexpected error while making StatefulSet: %v", err)
+	}
+
+	expectedResources := v1.ResourceRequirements{Limits: v1.ResourceList{
+		v1.ResourceMemory: resource.MustParse("50Mi"),
+	}}
+	for _, c := range sset.Spec.Template.Spec.Containers {
+		if (c.Name == "prometheus-config-reloader" || c.Name == "rules-configmap-reloader") && !reflect.DeepEqual(c.Resources, expectedResources) {
+			t.Fatal("Unexpected resource requests/limits set, when none should be set.")
+		}
+	}
+}
+
+func TestSidecarsNoMemoryLimits(t *testing.T) {
+	testConfig := &Config{
+		ConfigReloaderImage:           "quay.io/coreos/configmap-reload:latest",
+		ConfigReloaderCPU:             "100m",
+		ConfigReloaderMemory:          "0",
+		PrometheusConfigReloaderImage: "quay.io/coreos/prometheus-config-reloader:latest",
+		PrometheusDefaultBaseImage:    "quay.io/prometheus/prometheus",
+		ThanosDefaultBaseImage:        "improbable/thanos",
+	}
+	sset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{},
+	}, testConfig, nil, "")
+	if err != nil {
+		t.Fatalf("Unexpected error while making StatefulSet: %v", err)
+	}
+
+	expectedResources := v1.ResourceRequirements{Limits: v1.ResourceList{
+		v1.ResourceCPU: resource.MustParse("100m"),
+	}}
+	for _, c := range sset.Spec.Template.Spec.Containers {
+		if (c.Name == "prometheus-config-reloader" || c.Name == "rules-configmap-reloader") && !reflect.DeepEqual(c.Resources, expectedResources) {
+			t.Fatal("Unexpected resource requests/limits set, when none should be set.")
+		}
+	}
+}
+
+func TestAdditionalContainers(t *testing.T) {
+	// The base to compare everything against
+	baseSet, err := makeStatefulSet(monitoringv1.Prometheus{}, defaultTestConfig, nil, "")
+
+	// Add an extra container
+	addSset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{
+			Containers: []v1.Container{
+				{
+					Name: "extra-container",
+				},
+			},
+		},
+	}, defaultTestConfig, nil, "")
+	require.NoError(t, err)
+
+	if len(baseSet.Spec.Template.Spec.Containers)+1 != len(addSset.Spec.Template.Spec.Containers) {
+		t.Fatalf("container count mismatch")
+	}
+
+	// Adding a new container with the same name results in a merge and just one container
+	const existingContainerName = "prometheus"
+	const containerImage = "madeUpContainerImage"
+	modSset, err := makeStatefulSet(monitoringv1.Prometheus{
+		Spec: monitoringv1.PrometheusSpec{
+			Containers: []v1.Container{
+				{
+					Name:  existingContainerName,
+					Image: containerImage,
+				},
+			},
+		},
+	}, defaultTestConfig, nil, "")
+	require.NoError(t, err)
+
+	if len(baseSet.Spec.Template.Spec.Containers) != len(modSset.Spec.Template.Spec.Containers) {
+		t.Fatalf("container count mismatch. container %s was added instead of merged", existingContainerName)
+	}
+
+	// Check that adding a container with an existing name results in a single patched container.
+	for _, c := range modSset.Spec.Template.Spec.Containers {
+		if c.Name == existingContainerName && c.Image != containerImage {
+			t.Fatalf("expected container %s to have the image %s but got %s", existingContainerName, containerImage, c.Image)
 		}
 	}
 }
