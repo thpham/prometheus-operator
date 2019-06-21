@@ -2,6 +2,7 @@ FROM registry.svc.ci.openshift.org/ocp/builder:golang-1.12 AS builder
 WORKDIR /go/src/github.com/coreos/prometheus-operator
 COPY . .
 ENV GO111MODULE=on
+ENV GOFLAGS="-mod=vendor"
 RUN make prometheus-config-reloader
 
 FROM registry.svc.ci.openshift.org/ocp/4.0:base
