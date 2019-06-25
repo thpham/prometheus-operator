@@ -20,6 +20,10 @@ This Document documents the types introduced by the Prometheus Operator to be co
 * [BasicAuth](#basicauth)
 * [Endpoint](#endpoint)
 * [NamespaceSelector](#namespaceselector)
+* [PodMetricsEndpoint](#podmetricsendpoint)
+* [PodMonitor](#podmonitor)
+* [PodMonitorList](#podmonitorlist)
+* [PodMonitorSpec](#podmonitorspec)
 * [Prometheus](#prometheus)
 * [PrometheusList](#prometheuslist)
 * [PrometheusRule](#prometheusrule)
@@ -41,8 +45,6 @@ This Document documents the types introduced by the Prometheus Operator to be co
 * [ServiceMonitorSpec](#servicemonitorspec)
 * [StorageSpec](#storagespec)
 * [TLSConfig](#tlsconfig)
-* [ThanosGCSSpec](#thanosgcsspec)
-* [ThanosS3Spec](#thanoss3spec)
 * [ThanosSpec](#thanosspec)
 
 ## APIServerConfig
@@ -203,6 +205,63 @@ NamespaceSelector is a selector for selecting either all namespaces or a list of
 
 [Back to TOC](#table-of-contents)
 
+## PodMetricsEndpoint
+
+PodMetricsEndpoint defines a scrapeable endpoint of a Kubernetes Pod serving Prometheus metrics.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| port | Name of the port this endpoint refers to. Mutually exclusive with targetPort. | string | false |
+| targetPort | Name or number of the target port of the endpoint. Mutually exclusive with port. | *intstr.IntOrString | false |
+| path | HTTP path to scrape for metrics. | string | false |
+| scheme | HTTP scheme to use for scraping. | string | false |
+| params | Optional HTTP URL parameters | map[string][]string | false |
+| interval | Interval at which metrics should be scraped | string | false |
+| scrapeTimeout | Timeout after which the scrape is ended | string | false |
+| honorLabels | HonorLabels chooses the metric's labels on collisions with target labels. | bool | false |
+| metricRelabelings | MetricRelabelConfigs to apply to samples before ingestion. | []*[RelabelConfig](#relabelconfig) | false |
+| relabelings | RelabelConfigs to apply to samples before ingestion. More info: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config | []*[RelabelConfig](#relabelconfig) | false |
+| proxyUrl | ProxyURL eg http://proxyserver:2195 Directs scrapes to proxy through this endpoint. | *string | false |
+
+[Back to TOC](#table-of-contents)
+
+## PodMonitor
+
+PodMonitor defines monitoring for a set of pods.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| metadata | Standard object’s metadata. More info: https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata | [metav1.ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#objectmeta-v1-meta) | false |
+| spec | Specification of desired Pod selection for target discovery by Prometheus. | [PodMonitorSpec](#podmonitorspec) | true |
+
+[Back to TOC](#table-of-contents)
+
+## PodMonitorList
+
+PodMonitorList is a list of PodMonitors.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| metadata | Standard list metadata More info: https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata | [metav1.ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#listmeta-v1-meta) | false |
+| items | List of PodMonitors | []*[PodMonitor](#podmonitor) | true |
+
+[Back to TOC](#table-of-contents)
+
+## PodMonitorSpec
+
+PodMonitorSpec contains specification parameters for a PodMonitor.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| jobLabel | The label to use to retrieve the job name from. | string | false |
+| podTargetLabels | PodTargetLabels transfers labels on the Kubernetes Pod onto the target. | []string | false |
+| podMetricsEndpoints | A list of endpoints allowed as part of this PodMonitor. | [][PodMetricsEndpoint](#podmetricsendpoint) | true |
+| selector | Selector to select Pod objects. | [metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#labelselector-v1-meta) | true |
+| namespaceSelector | Selector to select which namespaces the Endpoints objects are discovered from. | [NamespaceSelector](#namespaceselector) | false |
+| sampleLimit | SampleLimit defines per-scrape limit on number of scraped samples that will be accepted. | uint64 | false |
+
+[Back to TOC](#table-of-contents)
+
 ## Prometheus
 
 Prometheus defines a Prometheus deployment.
@@ -267,6 +326,8 @@ PrometheusSpec is a specification of the desired behavior of the Prometheus clus
 | podMetadata | Standard object’s metadata. More info: https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata Metadata Labels and Annotations gets propagated to the prometheus pods. | *[metav1.ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#objectmeta-v1-meta) | false |
 | serviceMonitorSelector | ServiceMonitors to be selected for target discovery. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#labelselector-v1-meta) | false |
 | serviceMonitorNamespaceSelector | Namespaces to be selected for ServiceMonitor discovery. If nil, only check own namespace. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#labelselector-v1-meta) | false |
+| podMonitorSelector | *Experimental* PodMonitors to be selected for target discovery. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#labelselector-v1-meta) | false |
+| podMonitorNamespaceSelector | Namespaces to be selected for PodMonitor discovery. If nil, only check own namespace. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#labelselector-v1-meta) | false |
 | version | Version of Prometheus to be deployed. | string | false |
 | tag | Tag of Prometheus container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. | string | false |
 | sha | SHA of Prometheus container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. | string | false |
@@ -278,6 +339,7 @@ PrometheusSpec is a specification of the desired behavior of the Prometheus clus
 | replicaExternalLabelName | Name of Prometheus external label used to denote replica name. Defaults to the value of `prometheus_replica`. External label will _not_ be added when value is set to empty string (`\"\"`). | *string | false |
 | prometheusExternalLabelName | Name of Prometheus external label used to denote Prometheus instance name. Defaults to the value of `prometheus`. External label will _not_ be added when value is set to empty string (`\"\"`). | *string | false |
 | retention | Time duration Prometheus shall retain data for. Default is '24h', and must match the regular expression `[0-9]+(ms\|s\|m\|h\|d\|w\|y)` (milliseconds seconds minutes hours days weeks years). | string | false |
+| retentionSize | Maximum amount of disk space used by blocks. | string | false |
 | logLevel | Log level for Prometheus to be configured with. | string | false |
 | logFormat | Log format for Prometheus to be configured with. | string | false |
 | scrapeInterval | Interval between consecutive scrapes. | string | false |
@@ -521,50 +583,18 @@ TLSConfig specifies TLS configuration parameters.
 
 [Back to TOC](#table-of-contents)
 
-## ThanosGCSSpec
-
-Deprecated: ThanosGCSSpec should be configured with an ObjectStorageConfig secret starting with Thanos v0.2.0. ThanosGCSSpec will be removed.
-
-| Field | Description | Scheme | Required |
-| ----- | ----------- | ------ | -------- |
-| bucket | Google Cloud Storage bucket name for stored blocks. If empty it won't store any block inside Google Cloud Storage. | *string | false |
-| credentials | Secret to access our Bucket. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#secretkeyselector-v1-core) | false |
-
-[Back to TOC](#table-of-contents)
-
-## ThanosS3Spec
-
-Deprecated: ThanosS3Spec should be configured with an ObjectStorageConfig secret starting with Thanos v0.2.0. ThanosS3Spec will be removed.
-
-| Field | Description | Scheme | Required |
-| ----- | ----------- | ------ | -------- |
-| bucket | S3-Compatible API bucket name for stored blocks. | *string | false |
-| endpoint | S3-Compatible API endpoint for stored blocks. | *string | false |
-| accessKey | AccessKey for an S3-Compatible API. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#secretkeyselector-v1-core) | false |
-| secretKey | SecretKey for an S3-Compatible API. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#secretkeyselector-v1-core) | false |
-| insecure | Whether to use an insecure connection with an S3-Compatible API. | *bool | false |
-| signatureVersion2 | Whether to use S3 Signature Version 2; otherwise Signature Version 4 will be used. | *bool | false |
-| encryptsse | Whether to use Server Side Encryption | *bool | false |
-
-[Back to TOC](#table-of-contents)
-
 ## ThanosSpec
 
 ThanosSpec defines parameters for a Prometheus server within a Thanos deployment.
 
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
-| peers | Peers is a DNS name for Thanos to discover peers through. | *string | false |
 | image | Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Thanos is being configured. | *string | false |
 | version | Version describes the version of Thanos to use. | *string | false |
 | tag | Tag of Thanos sidecar container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. | *string | false |
 | sha | SHA of Thanos container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. | *string | false |
 | baseImage | Thanos base image if other than default. | *string | false |
 | resources | Resources defines the resource requirements for the Thanos sidecar. If not provided, no requests/limits will be set | [v1.ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#resourcerequirements-v1-core) | false |
-| gcs | Deprecated: GCS should be configured with an ObjectStorageConfig secret starting with Thanos v0.2.0. This field will be removed. | *[ThanosGCSSpec](#thanosgcsspec) | false |
-| s3 | Deprecated: S3 should be configured with an ObjectStorageConfig secret starting with Thanos v0.2.0. This field will be removed. | *[ThanosS3Spec](#thanoss3spec) | false |
 | objectStorageConfig | ObjectStorageConfig configures object storage in Thanos. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#secretkeyselector-v1-core) | false |
-| grpcAdvertiseAddress | Explicit (external) host:port address to advertise for gRPC StoreAPI in gossip cluster. If empty, 'grpc-address' will be used. | *string | false |
-| clusterAdvertiseAddress | Explicit (external) ip:port address to advertise for gossip in gossip cluster. Used internally for membership only. | *string | false |
 
 [Back to TOC](#table-of-contents)

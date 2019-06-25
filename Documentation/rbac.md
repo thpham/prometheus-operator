@@ -19,9 +19,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
 rules:
 - apiGroups:
@@ -38,6 +38,7 @@ rules:
   - prometheuses/finalizers
   - alertmanagers/finalizers
   - servicemonitors
+  - podmonitors
   - prometheusrules
   verbs:
   - '*'
@@ -153,9 +154,9 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
   namespace: default
 ```
@@ -170,9 +171,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
