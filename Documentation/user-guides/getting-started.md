@@ -20,9 +20,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -37,9 +37,9 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
 rules:
 - apiGroups:
@@ -56,6 +56,7 @@ rules:
   - prometheuses/finalizers
   - alertmanagers/finalizers
   - servicemonitors
+  - podmonitors
   - prometheusrules
   verbs:
   - '*'
@@ -106,35 +107,35 @@ rules:
   - list
   - watch
 ---
-apiVersion: apps/v1beta2
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
   namespace: default
 spec:
   replicas: 1
   selector:
     matchLabels:
-      apps.kubernetes.io/component: controller
-      apps.kubernetes.io/name: prometheus-operator
+      app.kubernetes.io/component: controller
+      app.kubernetes.io/name: prometheus-operator
   template:
     metadata:
       labels:
-        apps.kubernetes.io/component: controller
-        apps.kubernetes.io/name: prometheus-operator
-        apps.kubernetes.io/version: v0.29.0
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: prometheus-operator
+        app.kubernetes.io/version: v0.31.1
     spec:
       containers:
       - args:
         - --kubelet-service=kube-system/kubelet
         - --logtostderr=true
         - --config-reloader-image=quay.io/coreos/configmap-reload:v0.0.1
-        - --prometheus-config-reloader=quay.io/coreos/prometheus-config-reloader:v0.29.0
-        image: quay.io/coreos/prometheus-operator:v0.29.0
+        - --prometheus-config-reloader=quay.io/coreos/prometheus-config-reloader:v0.31.1
+        image: quay.io/coreos/prometheus-operator:v0.31.1
         name: prometheus-operator
         ports:
         - containerPort: 8080
@@ -148,7 +149,6 @@ spec:
             memory: 100Mi
         securityContext:
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
       nodeSelector:
         beta.kubernetes.io/os: linux
       securityContext:
@@ -160,11 +160,30 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   labels:
-    apps.kubernetes.io/component: controller
-    apps.kubernetes.io/name: prometheus-operator
-    apps.kubernetes.io/version: v0.29.0
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
   name: prometheus-operator
   namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
+    app.kubernetes.io/version: v0.31.1
+  name: prometheus-operator
+  namespace: default
+spec:
+  clusterIP: None
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: prometheus-operator
 ```
 
 ## Related resources
@@ -193,6 +212,9 @@ metadata:
   name: example-app
 spec:
   replicas: 3
+  selector:
+    matchLabels:
+      app: example-app
   template:
     metadata:
       labels:
