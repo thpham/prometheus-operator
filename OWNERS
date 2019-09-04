@@ -1,14 +1,15 @@
 reviewers:
-  - brancz
-  - metalmatze
-  - mxinden
-  - s-urbaniak
-  - squat
-  - LiliC
+- brancz
+- squat
+- s-urbaniak
+- metalmatze
+- paulfantom
+- LiliC
+
 approvers:
-  - brancz
-  - metalmatze
-  - mxinden
-  - s-urbaniak
-  - squat
-  - LiliC
+- brancz
+- squat
+- s-urbaniak
+- metalmatze
+- paulfantom
+- LiliC
