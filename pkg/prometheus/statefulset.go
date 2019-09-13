@@ -35,7 +35,7 @@ import (
 const (
 	governingServiceName            = "prometheus-operated"
 	DefaultPrometheusVersion        = "v2.7.1"
-	DefaultThanosVersion            = "v0.5.0"
+	DefaultThanosVersion            = "v0.7.0"
 	defaultRetention                = "24h"
 	defaultReplicaExternalLabelName = "prometheus_replica"
 	storageDir                      = "/prometheus"
@@ -301,6 +301,15 @@ func makeStatefulSetService(p *monitoringv1.Prometheus, config Config) *v1.Servi
 			},
 		},
 	}
+
+	if p.Spec.Thanos != nil {
+		svc.Spec.Ports = append(svc.Spec.Ports, v1.ServicePort{
+			Name:       "grpc",
+			Port:       10901,
+			TargetPort: intstr.FromString("grpc"),
+		})
+	}
+
 	return svc
 }
 
