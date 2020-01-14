@@ -32,7 +32,7 @@ import (
 
 var (
 	defaultTestConfig = &Config{
-		ConfigReloaderImage:           "quay.io/coreos/configmap-reload:latest",
+		ConfigReloaderImage:           "jimmidyson/configmap-reload:latest",
 		ConfigReloaderCPU:             "100m",
 		ConfigReloaderMemory:          "25Mi",
 		PrometheusConfigReloaderImage: "quay.io/coreos/prometheus-config-reloader:latest",
@@ -47,6 +47,14 @@ func TestStatefulSetLabelingAndAnnotations(t *testing.T) {
 	}
 	annotations := map[string]string{
 		"testannotation": "testannotationvalue",
+		"kubectl.kubernetes.io/last-applied-configuration": "something",
+		"kubectl.kubernetes.io/something":                  "something",
+	}
+	// kubectl annotations must not be on the statefulset so kubectl does
+	// not manage the generated object
+	expectedAnnotations := map[string]string{
+		"prometheus-operator-input-hash": "",
+		"testannotation":                 "testannotationvalue",
 	}
 
 	sset, err := makeStatefulSet(monitoringv1.Prometheus{
@@ -61,13 +69,6 @@ func TestStatefulSetLabelingAndAnnotations(t *testing.T) {
 	if !reflect.DeepEqual(labels, sset.Labels) {
 		fmt.Println(pretty.Compare(labels, sset.Labels))
 		t.Fatal("Labels are not properly being propagated to the StatefulSet")
-	}
-
-	expectedAnnotations := map[string]string{
-		"prometheus-operator-input-hash": "",
-	}
-	for k, v := range annotations {
-		expectedAnnotations[k] = v
 	}
 
 	if !reflect.DeepEqual(expectedAnnotations, sset.Annotations) {
@@ -406,7 +407,7 @@ func TestListenLocal(t *testing.T) {
 				Command: []string{
 					`sh`,
 					`-c`,
-					`if [ -x "$(command -v curl)" ]; then curl http://localhost:9090/-/ready; elif [ -x "$(command -v wget)" ]; then wget -q http://localhost:9090/-/ready; else exit 1; fi`,
+					`if [ -x "$(command -v curl)" ]; then curl http://localhost:9090/-/ready; elif [ -x "$(command -v wget)" ]; then wget -q -O /dev/null http://localhost:9090/-/ready; else exit 1; fi`,
 				},
 			},
 		},
@@ -425,7 +426,7 @@ func TestListenLocal(t *testing.T) {
 				Command: []string{
 					`sh`,
 					`-c`,
-					`if [ -x "$(command -v curl)" ]; then curl http://localhost:9090/-/healthy; elif [ -x "$(command -v wget)" ]; then wget -q http://localhost:9090/-/healthy; else exit 1; fi`,
+					`if [ -x "$(command -v curl)" ]; then curl http://localhost:9090/-/healthy; elif [ -x "$(command -v wget)" ]; then wget -q -O /dev/null http://localhost:9090/-/healthy; else exit 1; fi`,
 				},
 			},
 		},
@@ -793,7 +794,7 @@ func TestRetention(t *testing.T) {
 
 func TestSidecarsNoCPULimits(t *testing.T) {
 	testConfig := &Config{
-		ConfigReloaderImage:           "quay.io/coreos/configmap-reload:latest",
+		ConfigReloaderImage:           "jimmidyson/configmap-reload:latest",
 		ConfigReloaderCPU:             "0",
 		ConfigReloaderMemory:          "50Mi",
 		PrometheusConfigReloaderImage: "quay.io/coreos/prometheus-config-reloader:latest",
@@ -819,7 +820,7 @@ func TestSidecarsNoCPULimits(t *testing.T) {
 
 func TestSidecarsNoMemoryLimits(t *testing.T) {
 	testConfig := &Config{
-		ConfigReloaderImage:           "quay.io/coreos/configmap-reload:latest",
+		ConfigReloaderImage:           "jimmidyson/configmap-reload:latest",
 		ConfigReloaderCPU:             "100m",
 		ConfigReloaderMemory:          "0",
 		PrometheusConfigReloaderImage: "quay.io/coreos/prometheus-config-reloader:latest",

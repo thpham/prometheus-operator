@@ -98,6 +98,7 @@ AlertmanagerEndpoints defines a selection of a single Endpoints object containin
 | pathPrefix | Prefix for the HTTP path alerts are pushed to. | string | false |
 | tlsConfig | TLS Config to use for alertmanager connection. | *[TLSConfig](#tlsconfig) | false |
 | bearerTokenFile | BearerTokenFile to read from filesystem to use when authenticating to Alertmanager. | string | false |
+| apiVersion | Version of the Alertmanager API that Prometheus uses to send alerts. It can be \"v1\" or \"v2\". | string | false |
 
 [Back to TOC](#table-of-contents)
 
@@ -360,6 +361,7 @@ PrometheusSpec is a specification of the desired behavior of the Prometheus clus
 | prometheusExternalLabelName | Name of Prometheus external label used to denote Prometheus instance name. Defaults to the value of `prometheus`. External label will _not_ be added when value is set to empty string (`\"\"`). | *string | false |
 | retention | Time duration Prometheus shall retain data for. Default is '24h', and must match the regular expression `[0-9]+(ms\|s\|m\|h\|d\|w\|y)` (milliseconds seconds minutes hours days weeks years). | string | false |
 | retentionSize | Maximum amount of disk space used by blocks. | string | false |
+| disableCompaction | Disable prometheus compaction. | bool | false |
 | walCompression | Enable compression of the write-ahead log using Snappy. This flag is only available in versions of Prometheus >= 2.11.0. | *bool | false |
 | logLevel | Log level for Prometheus to be configured with. | string | false |
 | logFormat | Log format for Prometheus to be configured with. | string | false |
@@ -457,7 +459,7 @@ RelabelConfig allows dynamic rewriting of the label set, being applied to sample
 | sourceLabels | The source labels select values from existing labels. Their content is concatenated using the configured separator and matched against the configured regular expression for the replace, keep, and drop actions. | []string | false |
 | separator | Separator placed between concatenated source label values. default is ';'. | string | false |
 | targetLabel | Label to which the resulting value is written in a replace action. It is mandatory for replace actions. Regex capture groups are available. | string | false |
-| regex | Regular expression against which the extracted value is matched. defailt is '(.*)' | string | false |
+| regex | Regular expression against which the extracted value is matched. Default is '(.*)' | string | false |
 | modulus | Modulus to take of the hash of the source label values. | uint64 | false |
 | replacement | Replacement value against which a regex replace is performed if the regular expression matches. Regex capture groups are available. Default is '$1' | string | false |
 | action | Action to perform based on regex matching. Default is 'replace' | string | false |
@@ -567,7 +569,7 @@ ServiceMonitor defines monitoring for a set of services.
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
 | metadata |  | [metav1.ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.11/#objectmeta-v1-meta) | false |
-| spec | Specification of desired Service selection for target discrovery by Prometheus. | [ServiceMonitorSpec](#servicemonitorspec) | true |
+| spec | Specification of desired Service selection for target discovery by Prometheus. | [ServiceMonitorSpec](#servicemonitorspec) | true |
 
 [Back to TOC](#table-of-contents)
 
