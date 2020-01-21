@@ -2,22 +2,22 @@
 
 _Note: This guide is valid for Prometheus Operator v0.28+ and Thanos v0.2+ and above._
 
-[Thanos](https://github.com/thanos-io/thanos/) is a set of components that can be composed into a highly available, multi
-Prometheus metric system with potentially unlimited storage capacity, if your Object Storage allows for it.
+[Thanos](https://github.com/thanos-io/thanos/) is a set of components that can be composed into a highly available,
+multi Prometheus metric system with potentially unlimited storage capacity, if your Object Storage allows for it.
 
 ## What Prometheus Operator helps with?
 
-Prometheus Operator operates Prometheus, not Thanos. However Thanos system integrates with existing setup by adding 
-sidecar to each Prometheus running in the system.
- 
+Prometheus Operator operates Prometheus, not Thanos. However, the Thanos system integrates with existing setup
+by adding a sidecar to each Prometheus instance running in the system.
+
 Please before continuing with Prometheus Operator Thanos integration, read more about Thanos in the [documentation](https://thanos.io/getting-started.md/).
 
-Prometheus Operator allows your to optionally add Thanos sidecar to Prometheus. Sidecar allows to hook into Thanos
-querying system as well as **optionally** back up your data in object storage.
+Prometheus Operator allows you to optionally add a Thanos sidecar to each Prometheus instance. This Sidecar
+can hook into the Thanos querying system as well as **optionally** back up your data in object storage.
 
-Thanos system includes other components like queriers or rulers. To get the advantage of object storage it also requires compactors and stores.
+Thanos includes other components like queriers or rulers. To get the advantage of object storage it also requires compactors and stores.
 
-All beside the sidecar should be deployed independently of the Prometheus Operator and its Thanos configuration. The
+Each component other than the sidecar is deployed independently of the Prometheus Operator and its Thanos configuration. The
 [kube-thanos](https://github.com/thanos-io/kube-thanos/) project has some starting points for other Thanos components deployments.
 
 In short, for the Thanos integration using the Prometheus Operator to work correctly you will need to have these extra
@@ -41,9 +41,10 @@ spec:
   ...
   thanos:
     baseImage: quay.io/thanos/thanos
-    version: v0.2.1
+    version: v0.8.1
 ...
 ```
+
 Note: If you're using Istio you may need to also set `ListenLocal` on the Thanos spec due to Istio's forwarding of traffic to localhost.
 
 ### Optional: Configuring Thanos Object Storage
@@ -74,7 +75,7 @@ Let's assume you saved this file to `/tmp/thanos-config.yaml`. You can use the f
 kubectl -n monitoring create secret generic thanos-objstore-config --from-file=thanos.yaml=/tmp/thanos-config.yaml
 ```
 
-And then you can specify this secret inside Thanose part of the Prometheus CRD we mentioned [earlier](#prometheus-custom-resource-with-thanos-sidecar):
+And then you can specify this secret inside Thanos part of the Prometheus CRD we mentioned [earlier](#prometheus-custom-resource-with-thanos-sidecar):
 
 ```
 ...
@@ -82,30 +83,30 @@ spec:
   ...
   thanos:
     baseImage: quay.io/thanos/thanos
-    version: v0.2.1
+    version: v0.8.1
     objectStorageConfig:
       key: thanos.yaml
       name: thanos-objstore-config
 ...
 ```
 
-This will attach Thanos sidecar that will backup all *new blocks* that Prometheus produces every 2 hours to the object storage.
+This will attach Thanos sidecar that will backup all _new blocks_ that Prometheus produces every 2 hours to the object storage.
 
-NOTE: This option will also disable local Prometheus compaction. This means that Thanos compactor is the main singleton component 
+NOTE: This option will also disable local Prometheus compaction. This means that Thanos compactor is the main singleton component
 responsible for compactions on a global, object storage level.
 
 ## Thanos and kube-thanos
 
 Deploying the sidecar was the first step towards getting Thanos up and running, but there are more components to be deployed, that complete Thanos:
 
-* [Querier](https://thanos.io/components/query.md/)
+- [Querier](https://thanos.io/components/query.md/)
 
 Additionally, when object storage backup is desired:
 
-* [Store](https://thanos.io/components/store.md/)
-* [Compactor](https://thanos.io/components/compact.md/)
+- [Store](https://thanos.io/components/store.md/)
+- [Compactor](https://thanos.io/components/compact.md/)
 
 Again, take a look at the Thanos documentation for more details on these components: https://thanos.io/quick-tutorial.md
 
-kube-thanos project has already supported several thanos components. 
+kube-thanos project has already supported several thanos components.
 For more details, please checkout [kube-thanos](https://github.com/thanos-io/kube-thanos/).

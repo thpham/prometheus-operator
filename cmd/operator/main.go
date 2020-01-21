@@ -132,7 +132,7 @@ func init() {
 	// the Prometheus Operator version if no Prometheus config reloader image is
 	// specified.
 	flagset.StringVar(&cfg.PrometheusConfigReloaderImage, "prometheus-config-reloader", fmt.Sprintf("quay.io/coreos/prometheus-config-reloader:v%v", version.Version), "Prometheus config reloader image")
-	flagset.StringVar(&cfg.ConfigReloaderImage, "config-reloader-image", "quay.io/coreos/configmap-reload:v0.0.1", "Reload Image")
+	flagset.StringVar(&cfg.ConfigReloaderImage, "config-reloader-image", "jimmidyson/configmap-reload:v0.3.0", "Reload Image")
 	flagset.StringVar(&cfg.ConfigReloaderCPU, "config-reloader-cpu", "100m", "Config Reloader CPU. Value \"0\" disables it and causes no limit to be configured.")
 	flagset.StringVar(&cfg.ConfigReloaderMemory, "config-reloader-memory", "25Mi", "Config Reloader Memory. Value \"0\" disables it and causes no limit to be configured.")
 	flagset.StringVar(&cfg.AlertmanagerDefaultBaseImage, "alertmanager-default-base-image", "quay.io/prometheus/alertmanager", "Alertmanager default base image")
@@ -203,13 +203,14 @@ func Main() int {
 		return 1
 	}
 
-	po, err := prometheuscontroller.New(cfg, log.With(logger, "component", "prometheusoperator"))
+	r := prometheus.NewRegistry()
+	po, err := prometheuscontroller.New(cfg, log.With(logger, "component", "prometheusoperator"), r)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating prometheus controller failed: ", err)
 		return 1
 	}
 
-	ao, err := alertmanagercontroller.New(cfg, log.With(logger, "component", "alertmanageroperator"))
+	ao, err := alertmanagercontroller.New(cfg, log.With(logger, "component", "alertmanageroperator"), r)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating alertmanager controller failed: ", err)
 		return 1
@@ -231,17 +232,6 @@ func Main() int {
 		return 1
 	}
 
-	reconcileErrorsCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "prometheus_operator_reconcile_errors_total",
-		Help: "Number of errors that occurred while reconciling the alertmanager statefulset",
-	}, []string{"controller"})
-
-	triggerByCounter := prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "prometheus_operator_triggered_total",
-		Help: "Number of times a Kubernetes object add, delete or update event" +
-			" triggered the Prometheus Operator to reconcile an object",
-	}, []string{"controller", "triggered_by", "action"})
-
 	validationTriggeredCounter := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "prometheus_operator_rule_validation_triggered_total",
 		Help: "Number of times a prometheusRule object triggered validation",
@@ -252,12 +242,9 @@ func Main() int {
 		Help: "Number of errors that occurred while validating a prometheusRules object",
 	})
 
-	r := prometheus.NewRegistry()
 	r.MustRegister(
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-		reconcileErrorsCounter,
-		triggerByCounter,
 		validationTriggeredCounter,
 		validationErrorsCounter,
 	)
@@ -265,20 +252,6 @@ func Main() int {
 	admit.RegisterMetrics(
 		&validationTriggeredCounter,
 		&validationErrorsCounter,
-	)
-
-	prometheusLabels := prometheus.Labels{"controller": "prometheus"}
-	po.RegisterMetrics(
-		prometheus.WrapRegistererWith(prometheusLabels, r),
-		reconcileErrorsCounter.MustCurryWith(prometheusLabels),
-		triggerByCounter.MustCurryWith(prometheusLabels),
-	)
-
-	alertmanagerLabels := prometheus.Labels{"controller": "alertmanager"}
-	ao.RegisterMetrics(
-		prometheus.WrapRegistererWith(alertmanagerLabels, r),
-		reconcileErrorsCounter.MustCurryWith(alertmanagerLabels),
-		triggerByCounter.MustCurryWith(alertmanagerLabels),
 	)
 
 	mux.Handle("/metrics", promhttp.HandlerFor(r, promhttp.HandlerOpts{}))

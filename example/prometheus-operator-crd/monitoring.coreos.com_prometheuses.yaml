@@ -699,6 +699,10 @@ spec:
                       Endpoints object containing alertmanager IPs to fire alerts
                       against.
                     properties:
+                      apiVersion:
+                        description: Version of the Alertmanager API that Prometheus
+                          uses to send alerts. It can be "v1" or "v2".
+                        type: string
                       bearerTokenFile:
                         description: BearerTokenFile to read from filesystem to use
                           when authenticating to Alertmanager.
@@ -2107,6 +2111,9 @@ spec:
                 - name
                 type: object
               type: array
+            disableCompaction:
+              description: Disable prometheus compaction.
+              type: boolean
             enableAdminAPI:
               description: 'Enable access to prometheus web admin API. Defaults to
                 the value of `false`. WARNING: Enabling the admin APIs enables mutating
@@ -3807,7 +3814,7 @@ spec:
                           type: integer
                         regex:
                           description: Regular expression against which the extracted
-                            value is matched. defailt is '(.*)'
+                            value is matched. Default is '(.*)'
                           type: string
                         replacement:
                           description: Replacement value against which a regex replace
