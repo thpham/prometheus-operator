@@ -21,7 +21,7 @@ metadata:
   labels:
     app.kubernetes.io/component: controller
     app.kubernetes.io/name: prometheus-operator
-    app.kubernetes.io/version: v0.35.1
+    app.kubernetes.io/version: v0.36.0
   name: prometheus-operator
 rules:
 - apiGroups:
@@ -38,6 +38,7 @@ rules:
   - prometheuses.monitoring.coreos.com
   - prometheusrules.monitoring.coreos.com
   - servicemonitors.monitoring.coreos.com
+  - thanosrulers.monitoring.coreos.com
   resources:
   - customresourcedefinitions
   verbs:
@@ -47,9 +48,11 @@ rules:
   - monitoring.coreos.com
   resources:
   - alertmanagers
+  - alertmanagers/finalizers
   - prometheuses
   - prometheuses/finalizers
-  - alertmanagers/finalizers
+  - thanosrulers
+  - thanosrulers/finalizers
   - servicemonitors
   - podmonitors
   - prometheusrules
@@ -169,7 +172,7 @@ metadata:
   labels:
     app.kubernetes.io/component: controller
     app.kubernetes.io/name: prometheus-operator
-    app.kubernetes.io/version: v0.35.1
+    app.kubernetes.io/version: v0.36.0
   name: prometheus-operator
   namespace: default
 ```
@@ -186,7 +189,7 @@ metadata:
   labels:
     app.kubernetes.io/component: controller
     app.kubernetes.io/name: prometheus-operator
-    app.kubernetes.io/version: v0.35.1
+    app.kubernetes.io/version: v0.36.0
   name: prometheus-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -228,4 +231,4 @@ subjects:
   namespace: default
 ```
 
-> See [Using Authorization Plugins](https://kubernetes.io/docs/admin/authorization/) for further usage information on RBAC components.
+> See [Using Authorization Plugins](https://kubernetes.io/docs/reference/access-authn-authz/authorization/) for further usage information on RBAC components.

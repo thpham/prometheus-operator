@@ -36,7 +36,7 @@ const (
 	governingServiceName = "alertmanager-operated"
 	// DefaultVersion specifies which version of Alertmanager the Prometheus
 	// Operator uses by default.
-	DefaultVersion         = "v0.17.0"
+	DefaultVersion         = "v0.20.0"
 	defaultRetention       = "120h"
 	secretsDir             = "/etc/alertmanager/secrets/"
 	configmapsDir          = "/etc/alertmanager/configmaps/"
@@ -468,7 +468,7 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 	terminationGracePeriod := int64(120)
 	finalLabels := config.Labels.Merge(podLabels)
 
-	// PodManagementPolicy is set to Parallel to mitigate issues in kuberentes: https://github.com/kubernetes/kubernetes/issues/60164
+	// PodManagementPolicy is set to Parallel to mitigate issues in kubernetes: https://github.com/kubernetes/kubernetes/issues/60164
 	// This is also mentioned as one of limitations of StatefulSets: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#limitations
 	return &appsv1.StatefulSetSpec{
 		ServiceName:         governingServiceName,
