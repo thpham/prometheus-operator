@@ -153,13 +153,14 @@ type Config struct {
 	ManageCRDs                    bool
 	PromSelector                  string
 	AlertManagerSelector          string
+	ThanosRulerSelector           string
 }
 
 type Namespaces struct {
 	// allow list/deny list for common custom resources
 	AllowList, DenyList []string
 	// allow list for prometheus/alertmanager custom resources
-	PrometheusAllowList, AlertmanagerAllowList []string
+	PrometheusAllowList, AlertmanagerAllowList, ThanosRulerAllowList []string
 }
 
 // BasicAuthCredentials represents a username password pair to be used with
@@ -509,6 +510,7 @@ func (c *Operator) handlePrometheusAdd(obj interface{}) {
 
 	level.Debug(c.logger).Log("msg", "Prometheus added", "key", key)
 	c.metrics.TriggerByCounter(monitoringv1.PrometheusesKind, "add").Inc()
+	checkPrometheusSpecDeprecation(key, obj.(*monitoringv1.Prometheus), c.logger)
 	c.enqueue(key)
 }
 
@@ -535,6 +537,7 @@ func (c *Operator) handlePrometheusUpdate(old, cur interface{}) {
 
 	level.Debug(c.logger).Log("msg", "Prometheus updated", "key", key)
 	c.metrics.TriggerByCounter(monitoringv1.PrometheusesKind, "update").Inc()
+	checkPrometheusSpecDeprecation(key, cur.(*monitoringv1.Prometheus), c.logger)
 	c.enqueue(key)
 }
 
@@ -1082,7 +1085,6 @@ func (c *Operator) sync(key string) error {
 	}
 
 	level.Info(c.logger).Log("msg", "sync prometheus", "key", key)
-	checkPrometheusSpecDeprecation(key, p, c.logger)
 	ruleConfigMapNames, err := c.createOrUpdateRuleConfigMaps(p)
 	if err != nil {
 		return err

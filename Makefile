@@ -16,9 +16,10 @@ JB_BINARY:=$(FIRST_GOPATH)/bin/jb
 PO_DOCGEN_BINARY:=$(FIRST_GOPATH)/bin/po-docgen
 EMBEDMD_BINARY:=$(FIRST_GOPATH)/bin/embedmd
 
-TYPES_V1_TARGET:=pkg/apis/monitoring/v1/types.go
+TYPES_V1_TARGET := pkg/apis/monitoring/v1/types.go
+TYPES_V1_TARGET += pkg/apis/monitoring/v1/thanos_types.go
 
-CRD_TYPES := alertmanagers podmonitors prometheuses prometheusrules servicemonitors
+CRD_TYPES := alertmanagers podmonitors prometheuses prometheusrules servicemonitors thanosrulers
 CRD_YAML_FILES := $(foreach name,$(CRD_TYPES),example/prometheus-operator-crd/monitoring.coreos.com_$(name).yaml)
 
 CRD_JSONNET_FILES := jsonnet/prometheus-operator/alertmanager-crd.libsonnet
@@ -26,6 +27,7 @@ CRD_JSONNET_FILES += jsonnet/prometheus-operator/podmonitor-crd.libsonnet
 CRD_JSONNET_FILES += jsonnet/prometheus-operator/prometheus-crd.libsonnet
 CRD_JSONNET_FILES += jsonnet/prometheus-operator/prometheusrule-crd.libsonnet
 CRD_JSONNET_FILES += jsonnet/prometheus-operator/servicemonitor-crd.libsonnet
+CRD_JSONNET_FILES += jsonnet/prometheus-operator/thanosruler-crd.libsonnet
 
 BINDATA_TARGET := pkg/apis/monitoring/v1/bindata.go
 
@@ -47,7 +49,7 @@ CONTAINER_CMD:=docker run --rm \
 		-w "/go/src/$(GO_PKG)" \
 		-e GO111MODULE=on \
 		-e USER=deadbeef \
-		quay.io/coreos/jsonnet-ci
+		quay.io/coreos/po-tooling
 
 .PHONY: all
 all: format generate build test
@@ -62,7 +64,7 @@ clean:
 ############
 
 .PHONY: build
-build: $(BINDATA_TARGET) operator prometheus-config-reloader k8s-gen lint
+build: $(BINDATA_TARGET) operator prometheus-config-reloader k8s-gen po-lint
 
 .PHONY: operator
 operator:
@@ -79,9 +81,9 @@ operator-no-deps:
 prometheus-config-reloader:
 	$(GO_BUILD_RECIPE) -o $@ cmd/$@/main.go
 
-.PHONY: lint
-lint:
-	$(GO_BUILD_RECIPE) -o lint cmd/lint/main.go
+.PHONY: po-lint
+po-lint:
+	$(GO_BUILD_RECIPE) -o po-lint cmd/po-lint/main.go
 
 DEEPCOPY_TARGET := pkg/apis/monitoring/v1/zz_generated.deepcopy.go
 $(DEEPCOPY_TARGET): $(CONTROLLER_GEN_BINARY)
@@ -129,7 +131,7 @@ k8s-gen: \
 	$(OPENAPI_TARGET)
 
 .PHONY: image
-image: .hack-operator-image .hack-prometheus-config-reloader-image .hack-lint-image
+image: .hack-operator-image .hack-prometheus-config-reloader-image
 
 .hack-operator-image: Dockerfile operator
 # Create empty target file, for the sole purpose of recording when this target
@@ -143,13 +145,6 @@ image: .hack-operator-image .hack-prometheus-config-reloader-image .hack-lint-im
 # was last executed via the last-modification timestamp on the file. See
 # https://www.gnu.org/software/make/manual/make.html#Empty-Targets
 	docker build -t $(REPO_PROMETHEUS_CONFIG_RELOADER):$(TAG) -f Dockerfile.config-reloader .
-	touch $@
-
-.hack-lint-image: cmd/lint/Dockerfile lint
-# Create empty target file, for the sole purpose of recording when this target
-# was last executed via the last-modification timestamp on the file. See
-# https://www.gnu.org/software/make/manual/make.html#Empty-Targets
-	docker build -t $(REPO_PROMETHEUS_OPERATOR_LINT):$(TAG) -f cmd/lint/Dockerfile .
 	touch $@
 
 ##############
@@ -180,6 +175,7 @@ $(CRD_JSONNET_FILES): $(GOJSONTOYAML_BINARY) $(CRD_YAML_FILES)
 	cat example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/servicemonitor-crd.libsonnet
 	cat example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml     | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/podmonitor-crd.libsonnet
 	cat example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/prometheusrule-crd.libsonnet
+	cat example/prometheus-operator-crd/monitoring.coreos.com_thanosrulers.yaml    | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/thanosruler-crd.libsonnet
 
 bundle.yaml: $(shell find example/rbac/prometheus-operator/*.yaml -type f)
 	scripts/generate-bundle.sh

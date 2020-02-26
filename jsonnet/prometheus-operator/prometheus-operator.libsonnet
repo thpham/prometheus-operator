@@ -15,7 +15,7 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
     },
 
     versions+:: {
-      prometheusOperator: 'v0.35.1',
+      prometheusOperator: 'v0.36.0',
       prometheusConfigReloader: self.prometheusOperator,
       configmapReloader: 'v0.3.0',
     },
@@ -47,6 +47,7 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
     '0servicemonitorCustomResourceDefinition': import 'servicemonitor-crd.libsonnet',
     '0podmonitorCustomResourceDefinition': import 'podmonitor-crd.libsonnet',
     '0prometheusruleCustomResourceDefinition': import 'prometheusrule-crd.libsonnet',
+    '0thanosrulerCustomResourceDefinition': import 'thanosruler-crd.libsonnet',
 
     clusterRoleBinding:
       local clusterRoleBinding = k.rbac.v1.clusterRoleBinding;
@@ -81,6 +82,7 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
                                   'prometheuses.monitoring.coreos.com',
                                   'prometheusrules.monitoring.coreos.com',
                                   'servicemonitors.monitoring.coreos.com',
+                                  'thanosrulers.monitoring.coreos.com',
                                 ]) +
                                 policyRule.withVerbs(['get', 'update']);
 
@@ -88,9 +90,11 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
                              policyRule.withApiGroups(['monitoring.coreos.com']) +
                              policyRule.withResources([
                                'alertmanagers',
+                               'alertmanagers/finalizers',
                                'prometheuses',
                                'prometheuses/finalizers',
-                               'alertmanagers/finalizers',
+                               'thanosrulers',
+                               'thanosrulers/finalizers',
                                'servicemonitors',
                                'podmonitors',
                                'prometheusrules',
