@@ -1,3 +1,5 @@
+ARG ARCH="amd64"
+ARG OS="linux"
 FROM registry.svc.ci.openshift.org/openshift/release:golang-1.12 AS builder
 WORKDIR /go/src/github.com/coreos/prometheus-operator
 COPY . .
