@@ -52,7 +52,8 @@ import (
 )
 
 const (
-	resyncPeriod = 5 * time.Minute
+	resyncPeriod     = 5 * time.Minute
+	thanosRulerLabel = "thanos-ruler"
 )
 
 // Operator manages life cycle of Thanos deployments and
@@ -609,6 +610,7 @@ func (o *Operator) sync(key string) error {
 		if err != nil {
 			return errors.Wrap(err, "making thanos statefulset config failed")
 		}
+		operator.SanitizeSTS(sset)
 		if _, err := ssetClient.Create(sset); err != nil {
 			return errors.Wrap(err, "creating thanos statefulset failed")
 		}
@@ -620,6 +622,7 @@ func (o *Operator) sync(key string) error {
 		return errors.Wrap(err, "making the statefulset, to update, failed")
 	}
 
+	operator.SanitizeSTS(sset)
 	_, err = ssetClient.Update(sset)
 	sErr, ok := err.(*apierrors.StatusError)
 
@@ -719,8 +722,8 @@ func (o *Operator) createCRDs() error {
 func ListOptions(name string) metav1.ListOptions {
 	return metav1.ListOptions{
 		LabelSelector: fields.SelectorFromSet(fields.Set(map[string]string{
-			"app":         "thanosruler",
-			"thanosruler": name,
+			"app":            thanosRulerLabel,
+			thanosRulerLabel: name,
 		})).String(),
 	}
 }
@@ -794,7 +797,6 @@ func (o *Operator) enqueueForNamespace(nsName string) {
 	if !exists {
 		level.Error(o.logger).Log(
 			"msg", fmt.Sprintf("get namespace to enqueue ThanosRuler instances failed: namespace %q does not exist", nsName),
-			"err", err,
 		)
 		return
 	}

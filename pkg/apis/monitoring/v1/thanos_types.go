@@ -57,10 +57,8 @@ type ThanosRulerList struct {
 // https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
 // +k8s:openapi-gen=true
 type ThanosRulerSpec struct {
-	// Standard object’s metadata. More info:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#metadata
-	// Metadata Labels and Annotations gets propagated to the prometheus pods.
-	PodMetadata *metav1.ObjectMeta `json:"podMetadata,omitempty"`
+	// PodMetadata contains Labels and Annotations gets propagated to the thanos ruler pods.
+	PodMetadata *PodMeta `json:"podMetadata,omitempty"`
 	// Thanos container image URL.
 	Image string `json:"image,omitempty"`
 	// An optional list of references to secrets in the same namespace
@@ -72,9 +70,23 @@ type ThanosRulerSpec struct {
 	Paused bool `json:"paused,omitempty"`
 	// Number of thanos ruler instances to deploy.
 	Replicas *int32 `json:"replicas,omitempty"`
-	// Resources defines the resource requirements for the Thanos sidecar.
+	// Define which Nodes the Pods are scheduled on.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// Resources defines the resource requirements for single Pods.
 	// If not provided, no requests/limits will be set
 	Resources v1.ResourceRequirements `json:"resources,omitempty"`
+	// If specified, the pod's scheduling constraints.
+	Affinity *v1.Affinity `json:"affinity,omitempty"`
+	// If specified, the pod's tolerations.
+	Tolerations []v1.Toleration `json:"tolerations,omitempty"`
+	// SecurityContext holds pod-level security attributes and common container settings.
+	// This defaults to the default PodSecurityContext.
+	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
+	// Priority class assigned to the Pods
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+	// ServiceAccountName is the name of the ServiceAccount to use to run the
+	// Thanos Ruler Pods.
+	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 	// Storage spec to specify how storage shall be used.
 	Storage *StorageSpec `json:"storage,omitempty"`
 	// Volumes allows configuration of additional volumes on the output StatefulSet definition. Volumes specified will
@@ -141,6 +153,12 @@ type ThanosRulerSpec struct {
 	// AlertDropLabels configure the label names which should be dropped in ThanosRuler alerts.
 	// If `labels` field is not provided, `thanos_ruler_replica` will be dropped in alerts by default.
 	AlertDropLabels []string `json:"alertDropLabels,omitempty"`
+	// The external URL the Thanos Ruler instances will be available under. This is
+	// necessary to generate correct URLs. This is necessary if Thanos Ruler is not
+	// served from root of a DNS name.
+	ExternalPrefix string `json:"externalPrefix,omitempty"`
+	// The route prefix ThanosRuler registers HTTP handlers for. This allows thanos UI to be served on a sub-path.
+	RoutePrefix string `json:"routePrefix,omitempty"`
 }
 
 // ThanosRulerStatus is the most recent observed status of the ThanosRuler. Read-only. Not

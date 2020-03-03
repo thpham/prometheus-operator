@@ -95,6 +95,7 @@ var (
 		"v2.11.0",
 		"v2.14.0",
 		"v2.15.2",
+		"v2.16.0",
 	}
 	DefaultPrometheusVersion = CompatibilityMatrix[len(CompatibilityMatrix)-1]
 )
@@ -441,11 +442,6 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 				fmt.Sprintf("-query.timeout=%s", *p.Spec.Query.Timeout),
 			)
 		}
-	}
-
-	var securityContext *v1.PodSecurityContext = nil
-	if p.Spec.SecurityContext != nil {
-		securityContext = p.Spec.SecurityContext
 	}
 
 	if p.Spec.EnableAdminAPI {
@@ -935,7 +931,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			Spec: v1.PodSpec{
 				Containers:                    containers,
 				InitContainers:                p.Spec.InitContainers,
-				SecurityContext:               securityContext,
+				SecurityContext:               p.Spec.SecurityContext,
 				ServiceAccountName:            p.Spec.ServiceAccountName,
 				NodeSelector:                  p.Spec.NodeSelector,
 				PriorityClassName:             p.Spec.PriorityClassName,

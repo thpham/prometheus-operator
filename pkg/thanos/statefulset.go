@@ -71,11 +71,19 @@ func makeStatefulSet(tr *monitoringv1.ThanosRuler, old *appsv1.StatefulSet, conf
 	}
 
 	boolTrue := true
+	// do not transfer kubectl annotations to the statefulset so it is not
+	// pruned by kubectl
+	annotations := make(map[string]string)
+	for key, value := range tr.ObjectMeta.Annotations {
+		if !strings.HasPrefix(key, "kubectl.kubernetes.io/") {
+			annotations[key] = value
+		}
+	}
 	statefulset := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        prefixedName(tr.Name),
 			Labels:      config.Labels.Merge(tr.ObjectMeta.Labels),
-			Annotations: tr.ObjectMeta.Annotations,
+			Annotations: annotations,
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion:         tr.APIVersion,
@@ -230,11 +238,18 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 		})
 	}
 
+	if tr.Spec.ExternalPrefix != "" {
+		trCLIArgs = append(trCLIArgs, "--web.external-prefix="+tr.Spec.ExternalPrefix)
+	}
+
+	if tr.Spec.RoutePrefix != "" {
+		trCLIArgs = append(trCLIArgs, fmt.Sprintf("--web.route-prefix=%s", tr.Spec.RoutePrefix))
+	}
+
 	localReloadURL := &url.URL{
 		Scheme: "http",
 		Host:   config.LocalHost + ":10902",
-		// TODO: add web prefix
-		Path: path.Clean("/-/reload"),
+		Path:   path.Clean(tr.Spec.RoutePrefix + "/-/reload"),
 	}
 
 	additionalContainers := []v1.Container{}
@@ -285,8 +300,8 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 			}
 		}
 	}
-	podLabels["app"] = "thanos-ruler"
-	podLabels["thanos"] = tr.Name
+	podLabels["app"] = thanosRulerLabel
+	podLabels[thanosRulerLabel] = tr.Name
 	finalLabels := config.Labels.Merge(podLabels)
 
 	storageVolName := volumeName(tr.Name)
@@ -349,6 +364,8 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 		return nil, errors.Wrap(err, "failed to merge containers spec")
 	}
 
+	terminationGracePeriod := int64(120)
+
 	// PodManagementPolicy is set to Parallel to mitigate issues in kubernetes: https://github.com/kubernetes/kubernetes/issues/60164
 	// This is also mentioned as one of limitations of StatefulSets: https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#limitations
 	return &appsv1.StatefulSetSpec{
@@ -366,9 +383,16 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 				Annotations: podAnnotations,
 			},
 			Spec: v1.PodSpec{
-				Containers:     containers,
-				InitContainers: tr.Spec.InitContainers,
-				Volumes:        trVolumes,
+				NodeSelector:                  tr.Spec.NodeSelector,
+				PriorityClassName:             tr.Spec.PriorityClassName,
+				ServiceAccountName:            tr.Spec.ServiceAccountName,
+				TerminationGracePeriodSeconds: &terminationGracePeriod,
+				Containers:                    containers,
+				InitContainers:                tr.Spec.InitContainers,
+				Volumes:                       trVolumes,
+				SecurityContext:               tr.Spec.SecurityContext,
+				Tolerations:                   tr.Spec.Tolerations,
+				Affinity:                      tr.Spec.Affinity,
 			},
 		},
 	}, nil
