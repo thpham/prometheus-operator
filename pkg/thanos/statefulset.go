@@ -31,7 +31,7 @@ import (
 )
 
 const (
-	DefaultThanosVersion      = "v0.10.1"
+	DefaultThanosVersion      = "v0.11.0"
 	rulesDir                  = "/etc/thanos/rules"
 	storageDir                = "/thanos/data"
 	governingServiceName      = "thanos-ruler-operated"
@@ -39,6 +39,7 @@ const (
 	defaultRetention          = "24h"
 	defaultEvaluationInterval = "15s"
 	defaultReplicaLabelName   = "thanos_ruler_replica"
+	sSetInputHashName         = "prometheus-operator-input-hash"
 )
 
 var (
@@ -50,7 +51,7 @@ var (
 	}
 )
 
-func makeStatefulSet(tr *monitoringv1.ThanosRuler, old *appsv1.StatefulSet, config Config, ruleConfigMapNames []string) (*appsv1.StatefulSet, error) {
+func makeStatefulSet(tr *monitoringv1.ThanosRuler, old *appsv1.StatefulSet, config Config, ruleConfigMapNames []string, inputHash string) (*appsv1.StatefulSet, error) {
 
 	if tr.Spec.Image == "" {
 		tr.Spec.Image = config.ThanosDefaultBaseImage
@@ -104,6 +105,14 @@ func makeStatefulSet(tr *monitoringv1.ThanosRuler, old *appsv1.StatefulSet, conf
 
 	if old != nil {
 		statefulset.Annotations = old.Annotations
+	}
+
+	if statefulset.ObjectMeta.Annotations == nil {
+		statefulset.ObjectMeta.Annotations = map[string]string{
+			sSetInputHashName: inputHash,
+		}
+	} else {
+		statefulset.ObjectMeta.Annotations[sSetInputHashName] = inputHash
 	}
 
 	storageSpec := tr.Spec.Storage
@@ -212,10 +221,9 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 			trCLIArgs = append(trCLIArgs, fmt.Sprintf("--query=%s", endpoint))
 		}
 	}
-	for _, ruleConfigMapName := range ruleConfigMapNames {
-		rulePath := rulesDir + "/" + ruleConfigMapName + "/*.yaml"
-		trCLIArgs = append(trCLIArgs, fmt.Sprintf("--rule-file=%s", rulePath))
-	}
+
+	rulePath := rulesDir + "/*/*.yaml"
+	trCLIArgs = append(trCLIArgs, fmt.Sprintf("--rule-file=%s", rulePath))
 
 	if tr.Spec.AlertManagersConfig != nil {
 		trCLIArgs = append(trCLIArgs, "--alertmanagers.config=$(ALERTMANAGERS_CONFIG)")
@@ -225,8 +233,10 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 				SecretKeyRef: tr.Spec.AlertManagersConfig,
 			},
 		})
-	} else if tr.Spec.AlertManagersURL != "" {
-		trCLIArgs = append(trCLIArgs, fmt.Sprintf("--alertmanagers.url=%s", tr.Spec.AlertManagersURL))
+	} else if len(tr.Spec.AlertManagersURL) > 0 {
+		for _, url := range tr.Spec.AlertManagersURL {
+			trCLIArgs = append(trCLIArgs, fmt.Sprintf("--alertmanagers.url=%s", url))
+		}
 	}
 
 	if tr.Spec.ObjectStorageConfig != nil {
@@ -247,6 +257,19 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 				SecretKeyRef: tr.Spec.TracingConfig,
 			},
 		})
+	}
+
+	if tr.Spec.GRPCServerTLSConfig != nil {
+		tls := tr.Spec.GRPCServerTLSConfig
+		if tls.CertFile != "" {
+			trCLIArgs = append(trCLIArgs, "--grpc-server-tls-cert="+tls.CertFile)
+		}
+		if tls.KeyFile != "" {
+			trCLIArgs = append(trCLIArgs, "--grpc-server-tls-key="+tls.KeyFile)
+		}
+		if tls.CAFile != "" {
+			trCLIArgs = append(trCLIArgs, "--grpc-server-tls-client-ca="+tls.CAFile)
+		}
 	}
 
 	if tr.Spec.ExternalPrefix != "" {
