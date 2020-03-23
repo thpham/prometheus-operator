@@ -247,8 +247,8 @@ PodMetricsEndpoint defines a scrapeable endpoint of a Kubernetes Pod serving Pro
 
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
-| port | Name of the port this endpoint refers to. Mutually exclusive with targetPort. | string | false |
-| targetPort | Name or number of the target port of the endpoint. Mutually exclusive with port. | *intstr.IntOrString | false |
+| port | Name of the pod port this endpoint refers to. Mutually exclusive with targetPort. | string | false |
+| targetPort | Deprecated: Use 'port' instead. | *intstr.IntOrString | false |
 | path | HTTP path to scrape for metrics. | string | false |
 | scheme | HTTP scheme to use for scraping. | string | false |
 | params | Optional HTTP URL parameters | map[string][]string | false |
@@ -391,6 +391,7 @@ PrometheusSpec is a specification of the desired behavior of the Prometheus clus
 | query | QuerySpec defines the query command line flags when starting Prometheus. | *[QuerySpec](#queryspec) | false |
 | storage | Storage spec to specify how storage shall be used. | *[StorageSpec](#storagespec) | false |
 | volumes | Volumes allows configuration of additional volumes on the output StatefulSet definition. Volumes specified will be appended to other volumes that are generated as a result of StorageSpec objects. | []v1.Volume | false |
+| volumeMounts | VolumeMounts allows configuration of additional VolumeMounts on the output StatefulSet definition. VolumeMounts specified will be appended to other VolumeMounts in the prometheus container, that are generated as a result of StorageSpec objects. | []v1.VolumeMount | false |
 | ruleSelector | A selector to select which PrometheusRules to mount for loading alerting rules from. Until (excluding) Prometheus Operator v0.24.0 Prometheus Operator will migrate any legacy rule ConfigMaps to PrometheusRule custom resources selected by RuleSelector. Make sure it does not match any config maps that you do not want to be migrated. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
 | ruleNamespaceSelector | Namespaces to be selected for PrometheusRules discovery. If unspecified, only the same namespace as the Prometheus object is in is used. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
 | alerting | Define details regarding alerting. | *[AlertingSpec](#alertingspec) | false |
@@ -709,7 +710,7 @@ ThanosRulerSpec is a specification of the desired behavior of the ThanosRuler. M
 | volumes | Volumes allows configuration of additional volumes on the output StatefulSet definition. Volumes specified will be appended to other volumes that are generated as a result of StorageSpec objects. | []v1.Volume | false |
 | objectStorageConfig | ObjectStorageConfig configures object storage in Thanos. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#secretkeyselector-v1-core) | false |
 | listenLocal | ListenLocal makes the Thanos ruler listen on loopback, so that it does not bind against the Pod IP. | bool | false |
-| queryEndpoints | QueryEndpoints defines Thanos querier endpoints from which to query metrics. Maps to the --query flag of thanos ruler. | []string | true |
+| queryEndpoints | QueryEndpoints defines Thanos querier endpoints from which to query metrics. Maps to the --query flag of thanos ruler. | []string | false |
 | queryConfig | Define configuration for connecting to thanos query instances. If this is defined, the QueryEndpoints field will be ignored. Maps to the `query.config` CLI argument. Only available with thanos v0.11.0 and higher. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#secretkeyselector-v1-core) | false |
 | alertmanagersUrl | Define URLs to send alerts to Alertmanager.  For Thanos v0.10.0 and higher, AlertManagersConfig should be used instead.  Note: this field will be ignored if AlertManagersConfig is specified. Maps to the `alertmanagers.url` arg. | []string | false |
 | alertmanagersConfig | Define configuration for connecting to alertmanager.  Only available with thanos v0.10.0 and higher.  Maps to the `alertmanagers.config` arg. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#secretkeyselector-v1-core) | false |
