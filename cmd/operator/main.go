@@ -132,7 +132,6 @@ func serveTLS(srv *http.Server, listener net.Listener, logger log.Logger, certFi
 }
 
 var (
-	cfg                prometheuscontroller.Config
 	availableLogLevels = []string{
 		logLevelAll,
 		logLevelDebug,
@@ -145,11 +144,13 @@ var (
 		logFormatLogfmt,
 		logFormatJson,
 	}
+	cfg = prometheuscontroller.Config{
+		CrdKinds: monitoringv1.DefaultCrdKinds,
+	}
+	flagset = flag.CommandLine
 )
 
 func init() {
-	cfg.CrdKinds = monitoringv1.DefaultCrdKinds
-	flagset := flag.CommandLine
 	klog.InitFlags(flagset)
 	flagset.StringVar(&cfg.ListenAddress, "web.listen-address", ":8080", "Address on which to expose metrics and web interface.")
 	flagset.StringVar(&cfg.ServerTLSConfig.CertFile, "web.cert-file", operatorTLSDir+"/tls.crt", "Cert file to be used for operator web server endpoints.")
@@ -187,6 +188,9 @@ func init() {
 	flagset.StringVar(&cfg.PromSelector, "prometheus-instance-selector", "", "Label selector to filter Prometheus CRDs to manage")
 	flagset.StringVar(&cfg.AlertManagerSelector, "alertmanager-instance-selector", "", "Label selector to filter AlertManager CRDs to manage")
 	flagset.StringVar(&cfg.ThanosRulerSelector, "thanos-ruler-instance-selector", "", "Label selector to filter ThanosRuler CRDs to manage")
+}
+
+func Main() int {
 	flagset.Parse(os.Args[1:])
 
 	cfg.Namespaces.AllowList = ns.asSlice()
@@ -210,9 +214,7 @@ func init() {
 	if len(cfg.Namespaces.ThanosRulerAllowList) == 0 {
 		cfg.Namespaces.ThanosRulerAllowList = cfg.Namespaces.AllowList
 	}
-}
 
-func Main() int {
 	logger := log.NewLogfmtLogger(log.NewSyncWriter(os.Stdout))
 	if cfg.LogFormat == logFormatJson {
 		logger = log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
