@@ -1,3 +1,5 @@
+component: "Monitoring"
+
 reviewers:
 - brancz
 - bwplotka
@@ -9,6 +11,7 @@ reviewers:
 - s-urbaniak
 - simonpasquier
 - squat
+
 approvers:
 - brancz
 - bwplotka
