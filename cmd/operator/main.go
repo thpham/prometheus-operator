@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/coreos/prometheus-operator/pkg/admission"
 	alertmanagercontroller "github.com/coreos/prometheus-operator/pkg/alertmanager"
@@ -36,6 +38,7 @@ import (
 	thanoscontroller "github.com/coreos/prometheus-operator/pkg/thanos"
 	"github.com/coreos/prometheus-operator/pkg/version"
 
+	rbacproxytls "github.com/brancz/kube-rbac-proxy/pkg/tls"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -59,6 +62,10 @@ const (
 	logFormatJson   = "json"
 )
 
+const (
+	defaultOperatorTLSDir = "/etc/tls/private"
+)
+
 var (
 	ns             = namespaces{}
 	deniedNs       = namespaces{}
@@ -74,9 +81,8 @@ func (n namespaces) Set(value string) error {
 	if n == nil {
 		return errors.New("expected n of type namespaces to be initialized")
 	}
-	ns := strings.Split(value, ",")
-	for i := range ns {
-		n[ns[i]] = struct{}{}
+	for _, ns := range strings.Split(value, ",") {
+		n[ns] = struct{}{}
 	}
 	return nil
 }
@@ -96,7 +102,7 @@ func (n namespaces) asSlice() []string {
 
 func serve(srv *http.Server, listener net.Listener, logger log.Logger) func() error {
 	return func() error {
-		logger.Log("msg", "Staring insecure server on :8080")
+		logger.Log("msg", "Staring insecure server on "+listener.Addr().String())
 		if err := srv.Serve(listener); err != http.ErrServerClosed {
 			return err
 		}
@@ -104,8 +110,17 @@ func serve(srv *http.Server, listener net.Listener, logger log.Logger) func() er
 	}
 }
 
+func serveTLS(srv *http.Server, listener net.Listener, logger log.Logger) func() error {
+	return func() error {
+		logger.Log("msg", "Staring secure server on "+listener.Addr().String())
+		if err := srv.ServeTLS(listener, "", ""); err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	}
+}
+
 var (
-	cfg                prometheuscontroller.Config
 	availableLogLevels = []string{
 		logLevelAll,
 		logLevelDebug,
@@ -118,12 +133,30 @@ var (
 		logFormatLogfmt,
 		logFormatJson,
 	}
+	cfg = prometheuscontroller.Config{
+		CrdKinds: monitoringv1.DefaultCrdKinds,
+	}
+	rawTLSCipherSuites string
+	serverTLS          bool
+
+	flagset = flag.CommandLine
 )
 
 func init() {
-	cfg.CrdKinds = monitoringv1.DefaultCrdKinds
-	flagset := flag.CommandLine
 	klog.InitFlags(flagset)
+	flagset.StringVar(&cfg.ListenAddress, "web.listen-address", ":8080", "Address on which to expose metrics and web interface.")
+	flagset.BoolVar(&serverTLS, "web.enable-tls", false, "Activate prometheus operator web server TLS.  "+
+		" This is useful for example when using the rule validation webhook.")
+	flagset.StringVar(&cfg.ServerTLSConfig.CertFile, "web.cert-file", defaultOperatorTLSDir+"/tls.crt", "Cert file to be used for operator web server endpoints.")
+	flagset.StringVar(&cfg.ServerTLSConfig.KeyFile, "web.key-file", defaultOperatorTLSDir+"/tls.key", "Private key matching the cert file to be used for operator web server endpoints.")
+	flagset.StringVar(&cfg.ServerTLSConfig.ClientCAFile, "web.client-ca-file", defaultOperatorTLSDir+"/tls-ca.crt", "Client CA certificate file to be used for operator web server endpoints.")
+	flagset.DurationVar(&cfg.ServerTLSConfig.ReloadInterval, "web.tls-reload-interval", time.Minute, "The interval at which to watch for TLS certificate changes, by default set to 1 minute. (default 1m0s).")
+	flag.StringVar(&cfg.ServerTLSConfig.MinVersion, "tls-min-version", "VersionTLS13",
+		"Minimum TLS version supported. Value must match version names from https://golang.org/pkg/crypto/tls/#pkg-constants.")
+	flag.StringVar(&rawTLSCipherSuites, "tls-cipher-suites", "", "Comma-separated list of cipher suites for the server."+
+		" Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants)."+
+		"If omitted, the default Go cipher suites will be used."+
+		"Note that TLS 1.3 ciphersuites are not configurable.")
 	flagset.StringVar(&cfg.Host, "apiserver", "", "API Server addr, e.g. ' - NOT RECOMMENDED FOR PRODUCTION - http://127.0.0.1:8080'. Omit parameter to run in on-cluster mode and utilize the service account token.")
 	flagset.StringVar(&cfg.TLSConfig.CertFile, "cert-file", "", " - NOT RECOMMENDED FOR PRODUCTION - Path to public TLS certificate file.")
 	flagset.StringVar(&cfg.TLSConfig.KeyFile, "key-file", "", "- NOT RECOMMENDED FOR PRODUCTION - Path to private TLS certificate file.")
@@ -156,32 +189,11 @@ func init() {
 	flagset.StringVar(&cfg.PromSelector, "prometheus-instance-selector", "", "Label selector to filter Prometheus CRDs to manage")
 	flagset.StringVar(&cfg.AlertManagerSelector, "alertmanager-instance-selector", "", "Label selector to filter AlertManager CRDs to manage")
 	flagset.StringVar(&cfg.ThanosRulerSelector, "thanos-ruler-instance-selector", "", "Label selector to filter ThanosRuler CRDs to manage")
-	flagset.Parse(os.Args[1:])
-
-	cfg.Namespaces.AllowList = ns.asSlice()
-	if len(cfg.Namespaces.AllowList) == 0 {
-		cfg.Namespaces.AllowList = append(cfg.Namespaces.AllowList, v1.NamespaceAll)
-	}
-
-	cfg.Namespaces.DenyList = deniedNs.asSlice()
-	cfg.Namespaces.PrometheusAllowList = prometheusNs.asSlice()
-	cfg.Namespaces.AlertmanagerAllowList = alertmanagerNs.asSlice()
-	cfg.Namespaces.ThanosRulerAllowList = thanosRulerNs.asSlice()
-
-	if len(cfg.Namespaces.PrometheusAllowList) == 0 {
-		cfg.Namespaces.PrometheusAllowList = cfg.Namespaces.AllowList
-	}
-
-	if len(cfg.Namespaces.AlertmanagerAllowList) == 0 {
-		cfg.Namespaces.AlertmanagerAllowList = cfg.Namespaces.AllowList
-	}
-
-	if len(cfg.Namespaces.ThanosRulerAllowList) == 0 {
-		cfg.Namespaces.ThanosRulerAllowList = cfg.Namespaces.AllowList
-	}
 }
 
 func Main() int {
+	flagset.Parse(os.Args[1:])
+
 	logger := log.NewLogfmtLogger(log.NewSyncWriter(os.Stdout))
 	if cfg.LogFormat == logFormatJson {
 		logger = log.NewJSONLogger(log.NewSyncWriter(os.Stdout))
@@ -213,6 +225,28 @@ func Main() int {
 		return 1
 	}
 
+	cfg.Namespaces.AllowList = ns
+	if len(cfg.Namespaces.AllowList) == 0 {
+		cfg.Namespaces.AllowList[v1.NamespaceAll] = struct{}{}
+	}
+
+	cfg.Namespaces.DenyList = deniedNs
+	cfg.Namespaces.PrometheusAllowList = prometheusNs
+	cfg.Namespaces.AlertmanagerAllowList = alertmanagerNs
+	cfg.Namespaces.ThanosRulerAllowList = thanosRulerNs
+
+	if len(cfg.Namespaces.PrometheusAllowList) == 0 {
+		cfg.Namespaces.PrometheusAllowList = cfg.Namespaces.AllowList
+	}
+
+	if len(cfg.Namespaces.AlertmanagerAllowList) == 0 {
+		cfg.Namespaces.AlertmanagerAllowList = cfg.Namespaces.AllowList
+	}
+
+	if len(cfg.Namespaces.ThanosRulerAllowList) == 0 {
+		cfg.Namespaces.ThanosRulerAllowList = cfg.Namespaces.AllowList
+	}
+
 	r := prometheus.NewRegistry()
 	po, err := prometheuscontroller.New(cfg, log.With(logger, "component", "prometheusoperator"), r)
 	if err != nil {
@@ -242,10 +276,23 @@ func Main() int {
 
 	web.Register(mux)
 	admit.Register(mux)
-	l, err := net.Listen("tcp", ":8080")
+	l, err := net.Listen("tcp", cfg.ListenAddress)
 	if err != nil {
-		fmt.Fprint(os.Stderr, "listening port 8080 failed", err)
+		fmt.Fprint(os.Stderr, "listening failed", cfg.ListenAddress, err)
 		return 1
+	}
+
+	var tlsConfig *tls.Config = nil
+	if serverTLS {
+		if rawTLSCipherSuites != "" {
+			cfg.ServerTLSConfig.CipherSuites = strings.Split(rawTLSCipherSuites, ",")
+		}
+		tlsConfig, err = operator.NewTLSConfig(logger, cfg.ServerTLSConfig.CertFile, cfg.ServerTLSConfig.KeyFile,
+			cfg.ServerTLSConfig.ClientCAFile, cfg.ServerTLSConfig.MinVersion, cfg.ServerTLSConfig.CipherSuites)
+		if tlsConfig == nil || err != nil {
+			fmt.Fprint(os.Stderr, "invalid TLS config", err)
+			return 1
+		}
 	}
 
 	validationTriggeredCounter := prometheus.NewCounter(prometheus.CounterOpts{
@@ -284,8 +331,45 @@ func Main() int {
 	wg.Go(func() error { return ao.Run(ctx.Done()) })
 	wg.Go(func() error { return to.Run(ctx.Done()) })
 
-	srv := &http.Server{Handler: mux}
-	wg.Go(serve(srv, l, logger))
+	if tlsConfig != nil {
+		r, err := rbacproxytls.NewCertReloader(
+			cfg.ServerTLSConfig.CertFile,
+			cfg.ServerTLSConfig.KeyFile,
+			cfg.ServerTLSConfig.ReloadInterval,
+		)
+		if err != nil {
+			fmt.Fprint(os.Stderr, "failed to initialize certificate reloader", err)
+			return 1
+		}
+
+		tlsConfig.GetCertificate = r.GetCertificate
+
+		wg.Go(func() error {
+			t := time.NewTicker(cfg.ServerTLSConfig.ReloadInterval)
+			for {
+				select {
+				case <-t.C:
+				case <-ctx.Done():
+					return nil
+				}
+				if err := r.Watch(ctx); err != nil {
+					level.Warn(logger).Log("msg", "error reloading server TLS certificate",
+						"err", err)
+				} else {
+					return nil
+				}
+			}
+		})
+	}
+	srv := &http.Server{
+		Handler:   mux,
+		TLSConfig: tlsConfig,
+	}
+	if srv.TLSConfig == nil {
+		wg.Go(serve(srv, l, logger))
+	} else {
+		wg.Go(serveTLS(srv, l, logger))
+	}
 
 	term := make(chan os.Signal)
 	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
