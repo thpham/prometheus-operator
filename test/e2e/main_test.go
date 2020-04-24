@@ -185,6 +185,7 @@ func testAllNSPrometheus(t *testing.T) {
 		"PromNoServiceMonitorSelector":           testPromNoServiceMonitorSelector,
 		"PromVersionMigration":                   testPromVersionMigration,
 		"PromResourceUpdate":                     testPromResourceUpdate,
+		"PromStorageLabelsAnnotations":           testPromStorageLabelsAnnotations,
 		"PromStorageUpdate":                      testPromStorageUpdate,
 		"PromReloadConfig":                       testPromReloadConfig,
 		"PromAdditionalScrapeConfig":             testPromAdditionalScrapeConfig,
