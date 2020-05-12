@@ -4,7 +4,7 @@ WORKDIR /go/src/github.com/coreos/prometheus-operator
 COPY . .
 ENV GO111MODULE=on
 ENV GOFLAGS="-mod=vendor"
-RUN make prometheus-config-reloader
+RUN OS=$(go env GOOS) ARCH=$(go env GOARCH) make prometheus-config-reloader
 
 FROM registry.svc.ci.openshift.org/ocp/4.0:base
 COPY --from=builder /go/src/github.com/coreos/prometheus-operator/prometheus-config-reloader /usr/bin/
