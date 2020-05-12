@@ -4,7 +4,7 @@ WORKDIR /go/src/github.com/coreos/prometheus-operator
 COPY . .
 ENV GO111MODULE=on
 ENV GOFLAGS="-mod=vendor"
-RUN make operator-no-deps
+RUN OS=$(go env GOOS) ARCH=$(go env GOARCH) make operator-no-deps
 
 FROM registry.svc.ci.openshift.org/ocp/4.0:base
 COPY --from=builder /go/src/github.com/coreos/prometheus-operator/operator /usr/bin/
