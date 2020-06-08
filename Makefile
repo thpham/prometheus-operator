@@ -1,7 +1,12 @@
 SHELL=/bin/bash -o pipefail
 
-OS?=linux
-ARCH?=amd64
+GOOS?=$(shell go env GOOS)
+GOARCH?=$(shell go env GOARCH)
+ifeq ($(GOARCH),arm)
+	ARCH=armv7
+else
+	ARCH=$(GOARCH)
+endif
 
 GO_PKG=github.com/coreos/prometheus-operator
 REPO?=quay.io/coreos/prometheus-operator
@@ -12,8 +17,6 @@ VERSION?=$(shell cat VERSION | tr -d " \t\n\r")
 
 FIRST_GOPATH:=$(firstword $(subst :, ,$(shell go env GOPATH)))
 CONTROLLER_GEN_BINARY := $(FIRST_GOPATH)/bin/controller-gen
-CRD_OPTIONS ?= "crd:preserveUnknownFields=false"
-GO_BINDATA_BINARY := $(FIRST_GOPATH)/bin/go-bindata
 GOJSONTOYAML_BINARY:=$(FIRST_GOPATH)/bin/gojsontoyaml
 JB_BINARY:=$(FIRST_GOPATH)/bin/jb
 PO_DOCGEN_BINARY:=$(FIRST_GOPATH)/bin/po-docgen
@@ -21,18 +24,6 @@ EMBEDMD_BINARY:=$(FIRST_GOPATH)/bin/embedmd
 
 TYPES_V1_TARGET := pkg/apis/monitoring/v1/types.go
 TYPES_V1_TARGET += pkg/apis/monitoring/v1/thanos_types.go
-
-CRD_TYPES := alertmanagers podmonitors prometheuses prometheusrules servicemonitors thanosrulers
-CRD_YAML_FILES := $(foreach name,$(CRD_TYPES),example/prometheus-operator-crd/monitoring.coreos.com_$(name).yaml)
-
-CRD_JSONNET_FILES := jsonnet/prometheus-operator/alertmanager-crd.libsonnet
-CRD_JSONNET_FILES += jsonnet/prometheus-operator/podmonitor-crd.libsonnet
-CRD_JSONNET_FILES += jsonnet/prometheus-operator/prometheus-crd.libsonnet
-CRD_JSONNET_FILES += jsonnet/prometheus-operator/prometheusrule-crd.libsonnet
-CRD_JSONNET_FILES += jsonnet/prometheus-operator/servicemonitor-crd.libsonnet
-CRD_JSONNET_FILES += jsonnet/prometheus-operator/thanosruler-crd.libsonnet
-
-BINDATA_TARGET := pkg/apis/monitoring/v1/bindata.go
 
 K8S_GEN_VERSION:=release-1.14
 K8S_GEN_BINARIES:=informer-gen lister-gen client-gen
@@ -42,7 +33,7 @@ K8S_GEN_DEPS:=.header
 K8S_GEN_DEPS+=$(TYPES_V1_TARGET)
 K8S_GEN_DEPS+=$(foreach bin,$(K8S_GEN_BINARIES),$(FIRST_GOPATH)/bin/$(bin))
 
-GO_BUILD_RECIPE=GOOS=$(OS) GOARCH=$(ARCH) CGO_ENABLED=0 go build -mod=vendor -ldflags="-s -X $(GO_PKG)/pkg/version.Version=$(VERSION)"
+GO_BUILD_RECIPE=GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=0 go build -mod=vendor -ldflags="-s -X $(GO_PKG)/pkg/version.Version=$(VERSION)"
 pkgs = $(shell go list ./... | grep -v /vendor/ | grep -v /test/ | grep -v /contrib/)
 
 CONTAINER_CMD:=docker run --rm \
@@ -67,7 +58,7 @@ clean:
 ############
 
 .PHONY: build
-build: $(BINDATA_TARGET) operator prometheus-config-reloader k8s-gen po-lint
+build: operator prometheus-config-reloader k8s-gen po-lint
 
 .PHONY: operator
 operator:
@@ -118,13 +109,6 @@ $(INFORMER_TARGET): $(K8S_GEN_DEPS) $(LISTER_TARGET) $(CLIENT_TARGET)
 	--input-dirs      "$(GO_PKG)/pkg/apis/monitoring/v1" \
 	--output-package  "$(GO_PKG)/pkg/client/informers"
 
-$(BINDATA_TARGET): $(GO_BINDATA_BINARY) $(CRD_YAML_FILES)
-	$(GO_BINDATA_BINARY) \
-	-mode 420 -modtime 1 \
-	-o  $(BINDATA_TARGET) \
-	-pkg v1 \
-	example/prometheus-operator-crd
-
 .PHONY: k8s-gen
 k8s-gen: \
 	$(DEEPCOPY_TARGET) \
@@ -140,15 +124,16 @@ image: .hack-operator-image .hack-prometheus-config-reloader-image
 # Create empty target file, for the sole purpose of recording when this target
 # was last executed via the last-modification timestamp on the file. See
 # https://www.gnu.org/software/make/manual/make.html#Empty-Targets
-	docker build --build-arg ARCH=$(ARCH) --build-arg OS=$(OS) -t $(REPO):$(TAG) .
+	docker build --build-arg ARCH=$(ARCH) --build-arg OS=$(GOOS) -t $(REPO):$(TAG) .
 	touch $@
 
 .hack-prometheus-config-reloader-image: cmd/prometheus-config-reloader/Dockerfile prometheus-config-reloader
 # Create empty target file, for the sole purpose of recording when this target
 # was last executed via the last-modification timestamp on the file. See
 # https://www.gnu.org/software/make/manual/make.html#Empty-Targets
-	docker build -t $(REPO_PROMETHEUS_CONFIG_RELOADER):$(TAG) -f Dockerfile.config-reloader .
+	docker build --build-arg ARCH=$(ARCH) --build-arg OS=$(GOOS) -t $(REPO_PROMETHEUS_CONFIG_RELOADER):$(TAG) -f cmd/prometheus-config-reloader/Dockerfile .
 	touch $@
+
 
 ##############
 # Generating #
@@ -158,29 +143,17 @@ vendor:
 	go mod vendor
 
 .PHONY: generate
-generate: $(DEEPCOPY_TARGET) $(BINDATA_TARGET) $(CRD_JSONNET_FILES) bundle.yaml $(shell find Documentation -type f)
+generate: $(DEEPCOPY_TARGET) generate-crds bundle.yaml $(shell find Documentation -type f)
 
 .PHONY: generate-in-docker
 generate-in-docker:
-	$(CONTAINER_CMD) $(MAKE) $(MFLAGS) --always-make generate
+	$(CONTAINER_CMD) make --always-make generate
 
-$(CRD_YAML_FILES): $(CONTROLLER_GEN_BINARY) $(TYPES_V1_TARGET)
-	$(CONTROLLER_GEN_BINARY) $(CRD_OPTIONS) paths=./pkg/apis/monitoring/v1 output:crd:dir=./example/prometheus-operator-crd
-	cat ./example/prometheus-operator-crd/monitoring.coreos.com_prometheus.yaml | \
-	sed s/plural\:\ prometheus/plural\:\ prometheuses/ | \
-	sed s/prometheus.monitoring.coreos.com/prometheuses.monitoring.coreos.com/ \
-	> ./example/prometheus-operator-crd/monitoring.coreos.com_prometheuses.yaml
-	rm ./example/prometheus-operator-crd/monitoring.coreos.com_prometheus.yaml
+.PHONY: generate-crds
+generate-crds: $(CONTROLLER_GEN_BINARY) $(GOJSONTOYAML_BINARY) $(TYPES_V1_TARGET)
+	GOOS=$(OS) GOARCH=$(ARCH) go run -v ./scripts/generate-crds.go --controller-gen=$(CONTROLLER_GEN_BINARY) --gojsontoyaml=$(GOJSONTOYAML_BINARY)
 
-$(CRD_JSONNET_FILES): $(GOJSONTOYAML_BINARY) $(CRD_YAML_FILES)
-	cat example/prometheus-operator-crd/monitoring.coreos.com_alertmanagers.yaml   | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/alertmanager-crd.libsonnet
-	cat example/prometheus-operator-crd/monitoring.coreos.com_prometheuses.yaml    | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/prometheus-crd.libsonnet
-	cat example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/servicemonitor-crd.libsonnet
-	cat example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml     | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/podmonitor-crd.libsonnet
-	cat example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/prometheusrule-crd.libsonnet
-	cat example/prometheus-operator-crd/monitoring.coreos.com_thanosrulers.yaml    | gojsontoyaml -yamltojson > jsonnet/prometheus-operator/thanosruler-crd.libsonnet
-
-bundle.yaml: $(shell find example/rbac/prometheus-operator/*.yaml -type f)
+bundle.yaml: generate-crds $(shell find example/rbac/prometheus-operator/*.yaml -type f)
 	scripts/generate-bundle.sh
 
 scripts/generate/vendor: $(JB_BINARY) $(shell find jsonnet/prometheus-operator -type f)
@@ -270,9 +243,6 @@ $(FIRST_GOPATH)/bin/$(1):
 	@go install -mod=vendor k8s.io/code-generator/cmd/$(1)
 
 endef
-
-$(GO_BINDATA_BINARY):
-	@go install -mod=vendor github.com/go-bindata/go-bindata/go-bindata
 
 $(foreach binary,$(K8S_GEN_BINARIES),$(eval $(call _K8S_GEN_VAR_TARGET_,$(binary))))
 

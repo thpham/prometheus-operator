@@ -76,7 +76,7 @@ To automate validation of your CRD configuration files see about [linting](Docum
 
 Note that this quickstart does not provision an entire monitoring stack; if that is what you are looking for see the [kube-prometheus](https://github.com/coreos/kube-prometheus) project. If you want the whole stack, but have already applied the `bundle.yaml`, delete the bundle first (`kubectl delete -f bundle.yaml`).
 
-To quickly try out _just_ the Prometheus Operator inside a cluster, run the following command:
+To quickly try out _just_ the Prometheus Operator inside a cluster, **choose a release** and run the following command:
 
 ```sh
 kubectl apply -f bundle.yaml

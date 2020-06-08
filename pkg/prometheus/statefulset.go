@@ -92,9 +92,7 @@ func makeStatefulSet(
 		p.Spec.PortName = defaultPortName
 	}
 
-	versionStr := strings.TrimLeft(p.Spec.Version, "v")
-
-	version, err := semver.Parse(versionStr)
+	version, err := semver.ParseTolerant(p.Spec.Version)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse version")
 	}
@@ -296,9 +294,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	// Allow up to 10 minutes for clean termination.
 	terminationGracePeriod := int64(600)
 
-	versionStr := strings.TrimLeft(p.Spec.Version, "v")
-
-	version, err := semver.Parse(versionStr)
+	version, err := semver.ParseTolerant(p.Spec.Version)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse version")
 	}
@@ -743,6 +739,13 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			fmt.Sprintf("--http-address=%s:10902", bindAddress),
 		}
 
+		if p.Spec.Thanos.LogLevel != "" {
+			thanosArgs = append(thanosArgs, "--log.level="+p.Spec.Thanos.LogLevel)
+		}
+		if p.Spec.Thanos.LogFormat != "" {
+			thanosArgs = append(thanosArgs, "--log.format="+p.Spec.Thanos.LogFormat)
+		}
+
 		if p.Spec.Thanos.GRPCServerTLSConfig != nil {
 			tls := p.Spec.Thanos.GRPCServerTLSConfig
 			if tls.CertFile != "" {
@@ -937,6 +940,10 @@ func prefixedName(name string) string {
 
 func subPathForStorage(s *monitoringv1.StorageSpec) string {
 	if s == nil {
+		return ""
+	}
+
+	if s.DisableMountSubPath {
 		return ""
 	}
 
