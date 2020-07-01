@@ -56,6 +56,7 @@ func TestGlobalSettings(t *testing.T) {
 	type testCase struct {
 		EvaluationInterval string
 		ScrapeInterval     string
+		ScrapeTimeout      string
 		ExternalLabels     map[string]string
 		QueryLogFile       string
 		Version            string
@@ -117,6 +118,25 @@ alerting:
 `,
 		},
 		{
+			Version:       "v2.15.2",
+			ScrapeTimeout: "30s",
+			Expected: `global:
+  evaluation_interval: 30s
+  scrape_interval: 30s
+  external_labels:
+    prometheus: /
+    prometheus_replica: $(POD_NAME)
+  scrape_timeout: 30s
+rule_files: []
+scrape_configs: []
+alerting:
+  alert_relabel_configs:
+  - action: labeldrop
+    regex: prometheus_replica
+  alertmanagers: []
+`,
+		},
+		{
 			Version: "v2.15.2",
 			ExternalLabels: map[string]string{
 				"key1": "value1",
@@ -168,6 +188,7 @@ alerting:
 				Spec: monitoringv1.PrometheusSpec{
 					EvaluationInterval: tc.EvaluationInterval,
 					ScrapeInterval:     tc.ScrapeInterval,
+					ScrapeTimeout:      tc.ScrapeTimeout,
 					ExternalLabels:     tc.ExternalLabels,
 					QueryLogFile:       tc.QueryLogFile,
 					Version:            tc.Version,
@@ -2682,4 +2703,41 @@ func TestHonorTimestamps(t *testing.T) {
 			t.Fatalf("\nGot: %s, \nExpected: %s\nFor values UserHonorTimestamps %+v, OverrideHonorTimestamps %t\n", cfg, tc.Expected, tc.UserHonorTimestamps, tc.OverrideHonorTimestamps)
 		}
 	}
+}
+
+func TestGetSampleLimit(t *testing.T) {
+	tcs := []struct {
+		Enforced uint64
+		Expected uint64
+		User     uint64
+	}{
+		{
+			Enforced: 100,
+			User:     1000,
+			Expected: 100,
+		},
+		{
+			Enforced: 99,
+			User:     88,
+			Expected: 88,
+		},
+		{
+			Enforced: 0,
+			User:     888,
+			Expected: 888,
+		},
+		{
+			Enforced: 1,
+			User:     0,
+			Expected: 1,
+		},
+	}
+
+	for _, tc := range tcs {
+		actual := getSampleLimit(tc.User, &tc.Enforced)
+		if actual != tc.Expected {
+			t.Fatalf("Got %d, Expected: %d, Enforced: %d, User: %d", actual, tc.Expected, tc.Enforced, tc.User)
+		}
+	}
+
 }
