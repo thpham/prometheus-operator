@@ -233,18 +233,21 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 		image = *a.Spec.Image
 	}
 
-	versionStr := strings.TrimLeft(a.Spec.Version, "v")
-
-	version, err := semver.Parse(versionStr)
+	version, err := semver.ParseTolerant(a.Spec.Version)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse alertmanager version")
 	}
 
 	amArgs := []string{
 		fmt.Sprintf("--config.file=%s", alertmanagerConfFile),
-		fmt.Sprintf("--cluster.listen-address=[$(POD_IP)]:%d", 9094),
 		fmt.Sprintf("--storage.path=%s", alertmanagerStorageDir),
 		fmt.Sprintf("--data.retention=%s", a.Spec.Retention),
+	}
+
+	if *a.Spec.Replicas == 1 {
+		amArgs = append(amArgs, "--cluster.listen-address=")
+	} else {
+		amArgs = append(amArgs, "--cluster.listen-address=[$(POD_IP)]:9094")
 	}
 
 	if a.Spec.ListenLocal {
@@ -271,6 +274,10 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 		if a.Spec.LogFormat != "" && a.Spec.LogFormat != "logfmt" {
 			amArgs = append(amArgs, fmt.Sprintf("--log.format=%s", a.Spec.LogFormat))
 		}
+	}
+
+	if a.Spec.ClusterAdvertiseAddress != "" {
+		amArgs = append(amArgs, fmt.Sprintf("--cluster.advertise-address=%s", a.Spec.ClusterAdvertiseAddress))
 	}
 
 	localReloadURL := &url.URL{
@@ -328,8 +335,15 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 	podLabels["app"] = "alertmanager"
 	podLabels["alertmanager"] = a.Name
 
+	var clusterPeerDomain string
+	if config.ClusterDomain != "" {
+		clusterPeerDomain = fmt.Sprintf("%s.%s.svc.%s.", governingServiceName, a.Namespace, config.ClusterDomain)
+	} else {
+		// The default DNS search path is .svc.<cluster domain>
+		clusterPeerDomain = governingServiceName
+	}
 	for i := int32(0); i < *a.Spec.Replicas; i++ {
-		amArgs = append(amArgs, fmt.Sprintf("--cluster.peer=%s-%d.%s.%s.svc:9094", prefixedName(a.Name), i, governingServiceName, a.Namespace))
+		amArgs = append(amArgs, fmt.Sprintf("--cluster.peer=%s-%d.%s:9094", prefixedName(a.Name), i, clusterPeerDomain))
 	}
 
 	for _, peer := range a.Spec.AdditionalPeers {
@@ -561,6 +575,10 @@ func prefixedName(name string) string {
 
 func subPathForStorage(s *monitoringv1.StorageSpec) string {
 	if s == nil {
+		return ""
+	}
+
+	if s.DisableMountSubPath {
 		return ""
 	}
 

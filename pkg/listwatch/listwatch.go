@@ -15,6 +15,7 @@
 package listwatch
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -82,7 +83,7 @@ func NewFilteredUnprivilegedNamespaceListWatchFromClient(l log.Logger, c cache.G
 				Resource("namespaces").
 				Name(name).
 				VersionedParams(&options, scheme.ParameterCodec).
-				Do().
+				Do(context.TODO()).
 				Into(result)
 			if err != nil {
 				return nil, err
@@ -265,4 +266,19 @@ func (mw *multiWatch) Stop() {
 func IsAllNamespaces(namespaces map[string]struct{}) bool {
 	_, ok := namespaces[v1.NamespaceAll]
 	return ok && len(namespaces) == 1
+}
+
+// IdenticalNamespaces returns true if a and b are identical.
+func IdenticalNamespaces(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+
+	return true
 }
