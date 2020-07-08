@@ -26,21 +26,20 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
-	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
-	"github.com/prometheus/prometheus/tsdb/tombstones"
+	"github.com/prometheus/prometheus/tsdb/labels"
 )
 
 // IndexWriter serializes the index for a block of series data.
 // The methods must be called in the order they are specified in.
 type IndexWriter interface {
 	// AddSymbols registers all string symbols that are encountered in series
-	// and other indices. Symbols must be added in sorted order.
-	AddSymbol(sym string) error
+	// and other indices.
+	AddSymbols(sym map[string]struct{}) error
 
 	// AddSeries populates the index writer with a series and its offsets
 	// of chunks that the index can reference.
@@ -50,6 +49,14 @@ type IndexWriter interface {
 	// are added later.
 	AddSeries(ref uint64, l labels.Labels, chunks ...chunks.Meta) error
 
+	// WriteLabelIndex serializes an index from label names to values.
+	// The passed in values chained tuples of strings of the length of names.
+	WriteLabelIndex(names []string, values []string) error
+
+	// WritePostings writes a postings list for a single label pair.
+	// The Postings here contain refs to the series that were added.
+	WritePostings(name, value string, it index.Postings) error
+
 	// Close writes any finalization and closes the resources associated with
 	// the underlying writer.
 	Close() error
@@ -57,19 +64,18 @@ type IndexWriter interface {
 
 // IndexReader provides reading access of serialized index data.
 type IndexReader interface {
-	// Symbols return an iterator over sorted string symbols that may occur in
-	// series' labels and indices. It is not safe to use the returned strings
-	// beyond the lifetime of the index reader.
-	Symbols() index.StringIter
+	// Symbols returns a set of string symbols that may occur in series' labels
+	// and indices.
+	Symbols() (map[string]struct{}, error)
 
-	// LabelValues returns sorted possible label values.
-	LabelValues(name string) ([]string, error)
+	// LabelValues returns the possible label values.
+	LabelValues(names ...string) (index.StringTuples, error)
 
-	// Postings returns the postings list iterator for the label pairs.
+	// Postings returns the postings list iterator for the label pair.
 	// The Postings here contain the offsets to the series inside the index.
-	// Found IDs are not strictly required to point to a valid Series, e.g.
-	// during background garbage collections. Input values must be sorted.
-	Postings(name string, values ...string) (index.Postings, error)
+	// Found IDs are not strictly required to point to a valid Series, e.g. during
+	// background garbage collections.
+	Postings(name, value string) (index.Postings, error)
 
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
@@ -77,14 +83,26 @@ type IndexReader interface {
 
 	// Series populates the given labels and chunk metas for the series identified
 	// by the reference.
-	// Returns storage.ErrNotFound if the ref does not resolve to a known series.
+	// Returns ErrNotFound if the ref does not resolve to a known series.
 	Series(ref uint64, lset *labels.Labels, chks *[]chunks.Meta) error
+
+	// LabelIndices returns a list of string tuples for which a label value index exists.
+	// NOTE: This is deprecated. Use `LabelNames()` instead.
+	LabelIndices() ([][]string, error)
 
 	// LabelNames returns all the unique label names present in the index in sorted order.
 	LabelNames() ([]string, error)
 
 	// Close releases the underlying resources of the reader.
 	Close() error
+}
+
+// StringTuples provides access to a sorted list of string tuples.
+type StringTuples interface {
+	// Total number of tuples in the list.
+	Len() int
+	// At returns the tuple at position i.
+	At(i int) ([]string, error)
 }
 
 // ChunkWriter serializes a time block of chunked series data.
@@ -117,11 +135,17 @@ type BlockReader interface {
 	// Chunks returns a ChunkReader over the block's data.
 	Chunks() (ChunkReader, error)
 
-	// Tombstones returns a tombstones.Reader over the block's deleted data.
-	Tombstones() (tombstones.Reader, error)
+	// Tombstones returns a TombstoneReader over the block's deleted data.
+	Tombstones() (TombstoneReader, error)
 
 	// Meta provides meta information about the block reader.
 	Meta() BlockMeta
+}
+
+// Appendable defines an entity to which data can be appended.
+type Appendable interface {
+	// Appender returns a new Appender against an underlying store.
+	Appender() Appender
 }
 
 // BlockMeta provides meta information about a block.
@@ -177,7 +201,6 @@ type BlockMetaCompaction struct {
 
 const indexFilename = "index"
 const metaFilename = "meta.json"
-const metaVersion1 = 1
 
 func chunkDir(dir string) string { return filepath.Join(dir, "chunks") }
 
@@ -191,7 +214,7 @@ func readMetaFile(dir string) (*BlockMeta, int64, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, 0, err
 	}
-	if m.Version != metaVersion1 {
+	if m.Version != 1 {
 		return nil, 0, errors.Errorf("unexpected meta file version %d", m.Version)
 	}
 
@@ -199,7 +222,7 @@ func readMetaFile(dir string) (*BlockMeta, int64, error) {
 }
 
 func writeMetaFile(logger log.Logger, dir string, meta *BlockMeta) (int64, error) {
-	meta.Version = metaVersion1
+	meta.Version = 1
 
 	// Make any changes to the file appear atomic.
 	path := filepath.Join(dir, metaFilename)
@@ -250,12 +273,12 @@ type Block struct {
 	meta BlockMeta
 
 	// Symbol Table Size in bytes.
-	// We maintain this variable to avoid recalculation every time.
+	// We maintain this variable to avoid recalculation everytime.
 	symbolTableSize uint64
 
 	chunkr     ChunkReader
 	indexr     IndexReader
-	tombstones tombstones.Reader
+	tombstones TombstoneReader
 
 	logger log.Logger
 
@@ -297,7 +320,7 @@ func OpenBlock(logger log.Logger, dir string, pool chunkenc.Pool) (pb *Block, er
 	}
 	closers = append(closers, ir)
 
-	tr, sizeTomb, err := tombstones.ReadTombstones(dir)
+	tr, sizeTomb, err := readTombstones(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -388,11 +411,11 @@ func (pb *Block) Chunks() (ChunkReader, error) {
 }
 
 // Tombstones returns a new TombstoneReader against the block data.
-func (pb *Block) Tombstones() (tombstones.Reader, error) {
+func (pb *Block) Tombstones() (TombstoneReader, error) {
 	if err := pb.startRead(); err != nil {
 		return nil, err
 	}
-	return blockTombstoneReader{Reader: pb.tombstones, b: pb}, nil
+	return blockTombstoneReader{TombstoneReader: pb.tombstones, b: pb}, nil
 }
 
 // GetSymbolTableSize returns the Symbol Table Size in the index of this block.
@@ -415,17 +438,18 @@ type blockIndexReader struct {
 	b  *Block
 }
 
-func (r blockIndexReader) Symbols() index.StringIter {
-	return r.ir.Symbols()
+func (r blockIndexReader) Symbols() (map[string]struct{}, error) {
+	s, err := r.ir.Symbols()
+	return s, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
 }
 
-func (r blockIndexReader) LabelValues(name string) ([]string, error) {
-	st, err := r.ir.LabelValues(name)
+func (r blockIndexReader) LabelValues(names ...string) (index.StringTuples, error) {
+	st, err := r.ir.LabelValues(names...)
 	return st, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
 }
 
-func (r blockIndexReader) Postings(name string, values ...string) (index.Postings, error) {
-	p, err := r.ir.Postings(name, values...)
+func (r blockIndexReader) Postings(name, value string) (index.Postings, error) {
+	p, err := r.ir.Postings(name, value)
 	if err != nil {
 		return p, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
 	}
@@ -443,6 +467,11 @@ func (r blockIndexReader) Series(ref uint64, lset *labels.Labels, chks *[]chunks
 	return nil
 }
 
+func (r blockIndexReader) LabelIndices() ([][]string, error) {
+	ss, err := r.ir.LabelIndices()
+	return ss, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
+}
+
 func (r blockIndexReader) LabelNames() ([]string, error) {
 	return r.b.LabelNames()
 }
@@ -453,7 +482,7 @@ func (r blockIndexReader) Close() error {
 }
 
 type blockTombstoneReader struct {
-	tombstones.Reader
+	TombstoneReader
 	b *Block
 }
 
@@ -473,7 +502,7 @@ func (r blockChunkReader) Close() error {
 }
 
 // Delete matching series between mint and maxt in the block.
-func (pb *Block) Delete(mint, maxt int64, ms ...*labels.Matcher) error {
+func (pb *Block) Delete(mint, maxt int64, ms ...labels.Matcher) error {
 	pb.mtx.Lock()
 	defer pb.mtx.Unlock()
 
@@ -489,7 +518,7 @@ func (pb *Block) Delete(mint, maxt int64, ms ...*labels.Matcher) error {
 	ir := pb.indexr
 
 	// Choose only valid postings which have chunks in the time-range.
-	stones := tombstones.NewMemTombstones()
+	stones := newMemTombstones()
 
 	var lset labels.Labels
 	var chks []chunks.Meta
@@ -505,7 +534,7 @@ Outer:
 			if chk.OverlapsClosedInterval(mint, maxt) {
 				// Delete only until the current values and not beyond.
 				tmin, tmax := clampInterval(mint, maxt, chks[0].MinTime, chks[len(chks)-1].MaxTime)
-				stones.AddInterval(p.At(), tombstones.Interval{Mint: tmin, Maxt: tmax})
+				stones.addInterval(p.At(), Interval{tmin, tmax})
 				continue Outer
 			}
 		}
@@ -515,9 +544,9 @@ Outer:
 		return p.Err()
 	}
 
-	err = pb.tombstones.Iter(func(id uint64, ivs tombstones.Intervals) error {
+	err = pb.tombstones.Iter(func(id uint64, ivs Intervals) error {
 		for _, iv := range ivs {
-			stones.AddInterval(id, iv)
+			stones.addInterval(id, iv)
 		}
 		return nil
 	})
@@ -527,7 +556,7 @@ Outer:
 	pb.tombstones = stones
 	pb.meta.Stats.NumTombstones = pb.tombstones.Total()
 
-	n, err := tombstones.WriteFile(pb.logger, pb.dir, pb.tombstones)
+	n, err := writeTombstoneFile(pb.logger, pb.dir, pb.tombstones)
 	if err != nil {
 		return err
 	}
@@ -545,7 +574,7 @@ Outer:
 func (pb *Block) CleanTombstones(dest string, c Compactor) (*ulid.ULID, error) {
 	numStones := 0
 
-	if err := pb.tombstones.Iter(func(id uint64, ivs tombstones.Intervals) error {
+	if err := pb.tombstones.Iter(func(id uint64, ivs Intervals) error {
 		numStones += len(ivs)
 		return nil
 	}); err != nil {
@@ -580,7 +609,7 @@ func (pb *Block) Snapshot(dir string) error {
 	for _, fname := range []string{
 		metaFilename,
 		indexFilename,
-		tombstones.TombstonesFilename,
+		tombstoneFilename,
 	} {
 		if err := os.Link(filepath.Join(pb.dir, fname), filepath.Join(blockDir, fname)); err != nil {
 			return errors.Wrapf(err, "create snapshot %s", fname)

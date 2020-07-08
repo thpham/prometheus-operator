@@ -15,7 +15,6 @@
 package e2e
 
 import (
-	"context"
 	"flag"
 	"log"
 	"os"
@@ -95,6 +94,7 @@ func TestAllNS(t *testing.T) {
 		ctx.AddFinalizerFn(f)
 	}
 
+	t.Run("TestCRDs", testCRDs)
 	t.Run("TestServerTLS", testServerTLS(t, ns))
 
 	// t.Run blocks until the function passed as the second argument (f) returns or
@@ -112,7 +112,7 @@ func TestAllNS(t *testing.T) {
 		"app.kubernetes.io/name": "prometheus-operator",
 	})).String()}
 
-	pl, err := framework.KubeClient.CoreV1().Pods(ns).List(context.TODO(), opts)
+	pl, err := framework.KubeClient.CoreV1().Pods(ns).List(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +133,27 @@ func TestAllNS(t *testing.T) {
 				restart,
 			)
 		}
+	}
+}
+
+func testCRDs(t *testing.T) {
+	const (
+		prometheusCRDName = "prometheuses.monitoring.coreos.com"
+	)
+	crds, err := framework.ListCRDs()
+	if err != nil {
+		t.Fatalf("unable to list CRDs: %v", err)
+	}
+	if len(crds.Items) < 5 {
+		t.Fatalf("incorrect number of CRDs, want at least: %v, got %v", 5, len(crds.Items))
+	}
+	crd, err := framework.GetCRD(prometheusCRDName)
+	if err != nil {
+		t.Fatalf("unable to get prometheus custom resource definition: %v", err)
+	}
+	// This field might be nil in older versions of kube (<1.15)
+	if crd.Spec.PreserveUnknownFields != nil && *crd.Spec.PreserveUnknownFields {
+		t.Fatalf("incorrect setting for preserveUnknownFields, want: %v, got: %v", false, *crd.Spec.PreserveUnknownFields)
 	}
 }
 
@@ -268,7 +289,7 @@ func testServerTLS(t *testing.T, namespace string) func(t *testing.T) {
 
 		operatorService := framework.KubeClient.CoreV1().Services(namespace)
 		request := operatorService.ProxyGet("https", prometheusOperatorServiceName, "https", "/healthz", make(map[string]string))
-		_, err := request.DoRaw(context.TODO())
+		_, err := request.DoRaw()
 		if err != nil {
 			t.Fatal(err)
 		}

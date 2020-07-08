@@ -15,60 +15,36 @@
 package framework
 
 import (
-	"context"
-
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 )
 
-var (
-	CRDCreateRule = rbacv1.PolicyRule{
-		APIGroups: []string{"apiextensions.k8s.io"},
-		Resources: []string{"customresourcedefinitions"},
-		Verbs:     []string{"create"},
-	}
-
-	CRDMonitoringRule = rbacv1.PolicyRule{
-		APIGroups: []string{"apiextensions.k8s.io"},
-		Resources: []string{"customresourcedefinitions"},
-		ResourceNames: []string{
-			"alertmanagers.monitoring.coreos.com",
-			"podmonitors.monitoring.coreos.com",
-			"prometheuses.monitoring.coreos.com",
-			"prometheusrules.monitoring.coreos.com",
-			"servicemonitors.monitoring.coreos.com",
-			"thanosrulers.monitoring.coreos.com",
-		},
-		Verbs: []string{"get", "update"},
-	}
-)
-
-func CreateClusterRole(kubeClient kubernetes.Interface, relativePath string) (*rbacv1.ClusterRole, error) {
+func CreateClusterRole(kubeClient kubernetes.Interface, relativePath string) error {
 	clusterRole, err := parseClusterRoleYaml(relativePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	_, err = kubeClient.RbacV1().ClusterRoles().Get(context.TODO(), clusterRole.Name, metav1.GetOptions{})
+	_, err = kubeClient.RbacV1().ClusterRoles().Get(clusterRole.Name, metav1.GetOptions{})
 
 	if err == nil {
 		// ClusterRole already exists -> Update
-		clusterRole, err = kubeClient.RbacV1().ClusterRoles().Update(context.TODO(), clusterRole, metav1.UpdateOptions{})
+		_, err = kubeClient.RbacV1().ClusterRoles().Update(clusterRole)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 	} else {
 		// ClusterRole doesn't exists -> Create
-		clusterRole, err = kubeClient.RbacV1().ClusterRoles().Create(context.TODO(), clusterRole, metav1.CreateOptions{})
+		_, err = kubeClient.RbacV1().ClusterRoles().Create(clusterRole)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return clusterRole, nil
+	return nil
 }
 
 func DeleteClusterRole(kubeClient kubernetes.Interface, relativePath string) error {
@@ -77,15 +53,7 @@ func DeleteClusterRole(kubeClient kubernetes.Interface, relativePath string) err
 		return err
 	}
 
-	return kubeClient.RbacV1().ClusterRoles().Delete(context.TODO(), clusterRole.Name, metav1.DeleteOptions{})
-}
-
-func UpdateClusterRole(kubeClient kubernetes.Interface, clusterRole *rbacv1.ClusterRole) error {
-	_, err := kubeClient.RbacV1().ClusterRoles().Update(context.TODO(), clusterRole, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
+	return kubeClient.RbacV1().ClusterRoles().Delete(clusterRole.Name, &metav1.DeleteOptions{})
 }
 
 func parseClusterRoleYaml(relativePath string) (*rbacv1.ClusterRole, error) {

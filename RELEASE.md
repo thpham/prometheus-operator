@@ -1,15 +1,3 @@
-# Release schedule
-
-Following [Prometheus](https://github.com/prometheus/prometheus/blob/master/RELEASE.md) and [Thanos](https://github.com/thanos-io/thanos/blob/master/docs/release-process.md), this project aims for a predictible release schedule.
-
-Release cadence of first pre-releases being cut is 6 weeks.
-
-| Release | Date of first pre-release (year-month-day) | Release shepherd                            |
-|---------|--------------------------------------------|---------------------------------------------|
-| v0.39   | 2020-05-06                                 | Pawel Krupa (GitHub: @paulfantom)           |
-| v0.40   | 2020-06-17                                 | Lili Cosic (GitHub: @lilic)                 |
-| v0.41   | 2020-07-29                                 | **searching for volunteer**                 |
-
 # How to cut a new release
 
 > This guide is strongly based on the [Prometheus release instructions](https://github.com/prometheus/prometheus/wiki/HOWTO-cut-a-new-release).
@@ -61,7 +49,7 @@ You can do the tagging on the commandline:
 
 ```bash
 $ tag=$(< VERSION) && git tag -s "v${tag}" -m "v${tag}"
-$ git push origin "v${tag}"
+$ git push --tags
 ```
 
 Signed tag with a GPG key is appreciated, but in case you can't add a GPG key to your Github account using the following [procedure](https://help.github.com/articles/generating-a-gpg-key/), you can replace the `-s` flag by `-a` flag of the `git tag` command to only annotate the tag without signing.

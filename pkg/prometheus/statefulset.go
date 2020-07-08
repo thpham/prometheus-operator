@@ -92,7 +92,9 @@ func makeStatefulSet(
 		p.Spec.PortName = defaultPortName
 	}
 
-	version, err := semver.ParseTolerant(p.Spec.Version)
+	versionStr := strings.TrimLeft(p.Spec.Version, "v")
+
+	version, err := semver.Parse(versionStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse version")
 	}
@@ -294,7 +296,9 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	// Allow up to 10 minutes for clean termination.
 	terminationGracePeriod := int64(600)
 
-	version, err := semver.ParseTolerant(p.Spec.Version)
+	versionStr := strings.TrimLeft(p.Spec.Version, "v")
+
+	version, err := semver.Parse(versionStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "parse version")
 	}
@@ -810,19 +814,11 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			})
 		}
 
-		if p.Spec.Thanos.LogLevel != "" {
-			container.Args = append(container.Args, "--log.level="+p.Spec.Thanos.LogLevel)
-		} else if p.Spec.LogLevel != "" {
-			container.Args = append(container.Args, "--log.level="+p.Spec.LogLevel)
+		if p.Spec.LogLevel != "" {
+			container.Args = append(container.Args, fmt.Sprintf("--log.level=%s", p.Spec.LogLevel))
 		}
-		if p.Spec.Thanos.LogFormat != "" {
-			container.Args = append(container.Args, "--log.format="+p.Spec.Thanos.LogFormat)
-		} else if p.Spec.LogFormat != "" {
-			container.Args = append(container.Args, "--log.format="+p.Spec.LogFormat)
-		}
-
-		if p.Spec.Thanos.MinTime != "" {
-			container.Args = append(container.Args, "--min-time="+p.Spec.Thanos.MinTime)
+		if p.Spec.LogFormat != "" {
+			container.Args = append(container.Args, fmt.Sprintf("--log.format=%s", p.Spec.LogFormat))
 		}
 		additionalContainers = append(additionalContainers, container)
 	}
@@ -941,10 +937,6 @@ func prefixedName(name string) string {
 
 func subPathForStorage(s *monitoringv1.StorageSpec) string {
 	if s == nil {
-		return ""
-	}
-
-	if s.DisableMountSubPath {
 		return ""
 	}
 

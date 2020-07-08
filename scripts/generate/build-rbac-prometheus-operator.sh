@@ -6,8 +6,10 @@ set -o pipefail
 # error on unset variables
 set -u
 
-PO=$(jsonnet -J scripts/generate/vendor scripts/generate/prometheus-operator-rbac.jsonnet)
-echo "$PO" | jq -r 'keys[]' | while read -r file
+rm -rf tmp
+mkdir tmp
+jsonnet -J scripts/generate/vendor scripts/generate/prometheus-operator-rbac.jsonnet > tmp/po.json
+jq -r 'keys[]' tmp/po.json | while read -r file
 do
-    echo "$PO" | jq -r ".[\"${file}\"]" | gojsontoyaml > "example/rbac/prometheus-operator/${file}"
+    jq -r ".[\"${file}\"]" tmp/po.json | gojsontoyaml > "example/rbac/prometheus-operator/${file}"
 done
