@@ -14,24 +14,21 @@
 package promql
 
 import (
-	"context"
 	"encoding/json"
+	"github.com/edsrzf/mmap-go"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/edsrzf/mmap-go"
-	"github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/log/level"
 )
 
 type ActiveQueryTracker struct {
-	mmapedFile    []byte
-	getNextIndex  chan int
-	logger        log.Logger
-	maxConcurrent int
+	mmapedFile   []byte
+	getNextIndex chan int
+	logger       log.Logger
 }
 
 type Entry struct {
@@ -43,14 +40,12 @@ const (
 	entrySize int = 1000
 )
 
-func parseBrokenJSON(brokenJSON []byte) (bool, string) {
-	queries := strings.ReplaceAll(string(brokenJSON), "\x00", "")
-	if len(queries) > 0 {
-		queries = queries[:len(queries)-1] + "]"
-	}
+func parseBrokenJson(brokenJson []byte, logger log.Logger) (bool, string) {
+	queries := strings.ReplaceAll(string(brokenJson), "\x00", "")
+	queries = queries[:len(queries)-1] + "]"
 
 	// Conditional because of implementation detail: len() = 1 implies file consisted of a single char: '['.
-	if len(queries) <= 1 {
+	if len(queries) == 1 {
 		return false, "[]"
 	}
 
@@ -65,14 +60,14 @@ func logUnfinishedQueries(filename string, filesize int, logger log.Logger) {
 			return
 		}
 
-		brokenJSON := make([]byte, filesize)
-		_, err = fd.Read(brokenJSON)
+		brokenJson := make([]byte, filesize)
+		_, err = fd.Read(brokenJson)
 		if err != nil {
 			level.Error(logger).Log("msg", "Failed to read query log file", "err", err)
 			return
 		}
 
-		queriesExist, queries := parseBrokenJSON(brokenJSON)
+		queriesExist, queries := parseBrokenJson(brokenJson, logger)
 		if !queriesExist {
 			return
 		}
@@ -80,52 +75,51 @@ func logUnfinishedQueries(filename string, filesize int, logger log.Logger) {
 	}
 }
 
-func getMMapedFile(filename string, filesize int, logger log.Logger) ([]byte, error) {
+func getMMapedFile(filename string, filesize int, logger log.Logger) (error, []byte) {
 
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 	if err != nil {
 		level.Error(logger).Log("msg", "Error opening query log file", "file", filename, "err", err)
-		return nil, err
+		return err, []byte{}
 	}
 
 	err = file.Truncate(int64(filesize))
 	if err != nil {
 		level.Error(logger).Log("msg", "Error setting filesize.", "filesize", filesize, "err", err)
-		return nil, err
+		return err, []byte{}
 	}
 
 	fileAsBytes, err := mmap.Map(file, mmap.RDWR, 0)
 	if err != nil {
 		level.Error(logger).Log("msg", "Failed to mmap", "file", filename, "Attempted size", filesize, "err", err)
-		return nil, err
+		return err, []byte{}
 	}
 
-	return fileAsBytes, err
+	return err, fileAsBytes
 }
 
-func NewActiveQueryTracker(localStoragePath string, maxConcurrent int, logger log.Logger) *ActiveQueryTracker {
+func NewActiveQueryTracker(localStoragePath string, maxQueries int, logger log.Logger) *ActiveQueryTracker {
 	err := os.MkdirAll(localStoragePath, 0777)
 	if err != nil {
 		level.Error(logger).Log("msg", "Failed to create directory for logging active queries")
 	}
 
-	filename, filesize := filepath.Join(localStoragePath, "queries.active"), 1+maxConcurrent*entrySize
+	filename, filesize := filepath.Join(localStoragePath, "queries.active"), 1+maxQueries*entrySize
 	logUnfinishedQueries(filename, filesize, logger)
 
-	fileAsBytes, err := getMMapedFile(filename, filesize, logger)
+	err, fileAsBytes := getMMapedFile(filename, filesize, logger)
 	if err != nil {
 		panic("Unable to create mmap-ed active query log")
 	}
 
 	copy(fileAsBytes, "[")
 	activeQueryTracker := ActiveQueryTracker{
-		mmapedFile:    fileAsBytes,
-		getNextIndex:  make(chan int, maxConcurrent),
-		logger:        logger,
-		maxConcurrent: maxConcurrent,
+		mmapedFile:   fileAsBytes,
+		getNextIndex: make(chan int, maxQueries),
+		logger:       logger,
 	}
 
-	activeQueryTracker.generateIndices(maxConcurrent)
+	activeQueryTracker.generateIndices(maxQueries)
 
 	return &activeQueryTracker
 }
@@ -136,7 +130,7 @@ func trimStringByBytes(str string, size int) string {
 	trimIndex := len(bytesStr)
 	if size < len(bytesStr) {
 		for !utf8.RuneStart(bytesStr[size]) {
-			size--
+			size -= 1
 		}
 		trimIndex = size
 	}
@@ -144,7 +138,7 @@ func trimStringByBytes(str string, size int) string {
 	return string(bytesStr[:trimIndex])
 }
 
-func _newJSONEntry(query string, timestamp int64, logger log.Logger) []byte {
+func _newJsonEntry(query string, timestamp int64, logger log.Logger) []byte {
 	entry := Entry{query, timestamp}
 	jsonEntry, err := json.Marshal(entry)
 
@@ -156,24 +150,20 @@ func _newJSONEntry(query string, timestamp int64, logger log.Logger) []byte {
 	return jsonEntry
 }
 
-func newJSONEntry(query string, logger log.Logger) []byte {
+func newJsonEntry(query string, logger log.Logger) []byte {
 	timestamp := time.Now().Unix()
-	minEntryJSON := _newJSONEntry("", timestamp, logger)
+	minEntryJson := _newJsonEntry("", timestamp, logger)
 
-	query = trimStringByBytes(query, entrySize-(len(minEntryJSON)+1))
-	jsonEntry := _newJSONEntry(query, timestamp, logger)
+	query = trimStringByBytes(query, entrySize-(len(minEntryJson)+1))
+	jsonEntry := _newJsonEntry(query, timestamp, logger)
 
 	return jsonEntry
 }
 
-func (tracker ActiveQueryTracker) generateIndices(maxConcurrent int) {
-	for i := 0; i < maxConcurrent; i++ {
+func (tracker ActiveQueryTracker) generateIndices(maxQueries int) {
+	for i := 0; i < maxQueries; i++ {
 		tracker.getNextIndex <- 1 + (i * entrySize)
 	}
-}
-
-func (tracker ActiveQueryTracker) GetMaxConcurrent() int {
-	return tracker.maxConcurrent
 }
 
 func (tracker ActiveQueryTracker) Delete(insertIndex int) {
@@ -181,17 +171,13 @@ func (tracker ActiveQueryTracker) Delete(insertIndex int) {
 	tracker.getNextIndex <- insertIndex
 }
 
-func (tracker ActiveQueryTracker) Insert(ctx context.Context, query string) (int, error) {
-	select {
-	case i := <-tracker.getNextIndex:
-		fileBytes := tracker.mmapedFile
-		entry := newJSONEntry(query, tracker.logger)
-		start, end := i, i+entrySize
+func (tracker ActiveQueryTracker) Insert(query string) int {
+	i, fileBytes := <-tracker.getNextIndex, tracker.mmapedFile
+	entry := newJsonEntry(query, tracker.logger)
+	start, end := i, i+entrySize
 
-		copy(fileBytes[start:], entry)
-		copy(fileBytes[end-1:], ",")
-		return i, nil
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
+	copy(fileBytes[start:], entry)
+	copy(fileBytes[end-1:], ",")
+
+	return i
 }

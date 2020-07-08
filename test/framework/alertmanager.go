@@ -15,7 +15,6 @@
 package framework
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -118,22 +117,22 @@ func (f *Framework) CreateAlertmanagerAndWaitUntilReady(ns string, a *monitoring
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("making alertmanager config secret %v failed", amConfigSecretName))
 	}
-	_, err = f.KubeClient.CoreV1().Secrets(ns).Create(context.TODO(), s, metav1.CreateOptions{})
+	_, err = f.KubeClient.CoreV1().Secrets(ns).Create(s)
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("creating alertmanager config secret %v failed", s.Name))
 	}
 
-	a, err = f.MonClientV1.Alertmanagers(ns).Create(context.TODO(), a, metav1.CreateOptions{})
+	a, err = f.MonClientV1.Alertmanagers(ns).Create(a)
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("creating alertmanager %v failed", a.Name))
 	}
 
-	return a, f.WaitForAlertmanagerReady(ns, a.Name, int(*a.Spec.Replicas))
+	return a, f.WaitForAlertmanagerClusterReady(ns, a.Name, int(*a.Spec.Replicas))
 }
 
-// WaitForAlertmanagerReady waits for each individual pod as well as the
+// WaitForAlertmanagerClusterReady waits for each individual pod as well as the
 // cluster as a whole to be ready.
-func (f *Framework) WaitForAlertmanagerReady(ns, name string, replicas int) error {
+func (f *Framework) WaitForAlertmanagerClusterReady(ns, name string, replicas int) error {
 	if err := WaitForPodsReady(
 		f.KubeClient,
 		ns,
@@ -150,7 +149,7 @@ func (f *Framework) WaitForAlertmanagerReady(ns, name string, replicas int) erro
 
 	for i := 0; i < replicas; i++ {
 		name := fmt.Sprintf("alertmanager-%v-%v", name, strconv.Itoa(i))
-		if err := f.WaitForAlertmanagerInitialized(ns, name, replicas); err != nil {
+		if err := f.WaitForAlertmanagerInitializedCluster(ns, name, replicas); err != nil {
 			return errors.Wrap(err,
 				fmt.Sprintf(
 					"failed to wait for an Alertmanager cluster (%s) with %d instances to become ready",
@@ -164,7 +163,7 @@ func (f *Framework) WaitForAlertmanagerReady(ns, name string, replicas int) erro
 }
 
 func (f *Framework) UpdateAlertmanagerAndWaitUntilReady(ns string, a *monitoringv1.Alertmanager) (*monitoringv1.Alertmanager, error) {
-	a, err := f.MonClientV1.Alertmanagers(ns).Update(context.TODO(), a, metav1.UpdateOptions{})
+	a, err := f.MonClientV1.Alertmanagers(ns).Update(a)
 	if err != nil {
 		return nil, err
 	}
@@ -184,12 +183,12 @@ func (f *Framework) UpdateAlertmanagerAndWaitUntilReady(ns string, a *monitoring
 }
 
 func (f *Framework) DeleteAlertmanagerAndWaitUntilGone(ns, name string) error {
-	_, err := f.MonClientV1.Alertmanagers(ns).Get(context.TODO(), name, metav1.GetOptions{})
+	_, err := f.MonClientV1.Alertmanagers(ns).Get(name, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("requesting Alertmanager tpr %v failed", name))
 	}
 
-	if err := f.MonClientV1.Alertmanagers(ns).Delete(context.TODO(), name, metav1.DeleteOptions{}); err != nil {
+	if err := f.MonClientV1.Alertmanagers(ns).Delete(name, nil); err != nil {
 		return errors.Wrap(err, fmt.Sprintf("deleting Alertmanager tpr %v failed", name))
 	}
 
@@ -203,24 +202,19 @@ func (f *Framework) DeleteAlertmanagerAndWaitUntilGone(ns, name string) error {
 		return errors.Wrap(err, fmt.Sprintf("waiting for Alertmanager tpr (%s) to vanish timed out", name))
 	}
 
-	return f.KubeClient.CoreV1().Secrets(ns).Delete(context.TODO(), fmt.Sprintf("alertmanager-%s", name), metav1.DeleteOptions{})
+	return f.KubeClient.CoreV1().Secrets(ns).Delete(fmt.Sprintf("alertmanager-%s", name), nil)
 }
 
 func amImage(version string) string {
 	return fmt.Sprintf("quay.io/prometheus/alertmanager:%s", version)
 }
 
-func (f *Framework) WaitForAlertmanagerInitialized(ns, name string, amountPeers int) error {
+func (f *Framework) WaitForAlertmanagerInitializedCluster(ns, name string, amountPeers int) error {
 	var pollError error
 	err := wait.Poll(time.Second, time.Minute*5, func() (bool, error) {
 		amStatus, err := f.GetAlertmanagerStatus(ns, name)
 		if err != nil {
 			return false, err
-		}
-
-		isAlertmanagerInClusterMode := amountPeers > 1
-		if !isAlertmanagerInClusterMode && amStatus.Status == "success" {
-			return true, nil
 		}
 
 		if amStatus.Data.ClusterStatus == nil {
@@ -253,7 +247,7 @@ func (f *Framework) WaitForAlertmanagerInitialized(ns, name string, amountPeers 
 func (f *Framework) GetAlertmanagerStatus(ns, n string) (amAPIStatusResp, error) {
 	var amStatus amAPIStatusResp
 	request := ProxyGetPod(f.KubeClient, ns, n, "/api/v1/status")
-	resp, err := request.DoRaw(context.TODO())
+	resp, err := request.DoRaw()
 	if err != nil {
 		return amStatus, err
 	}
@@ -273,7 +267,7 @@ func (f *Framework) CreateSilence(ns, n string) (string, error) {
 		"/api/v1/silences",
 		`{"id":"","createdBy":"Max Mustermann","comment":"1234","startsAt":"2030-04-09T09:16:15.114Z","endsAt":"2031-04-09T11:16:15.114Z","matchers":[{"name":"test","value":"123","isRegex":false}]}`,
 	)
-	resp, err := request.DoRaw(context.TODO())
+	resp, err := request.DoRaw()
 	if err != nil {
 		return "", err
 	}
@@ -327,7 +321,7 @@ func (f *Framework) SendAlertToAlertmanager(ns, n string, start time.Time) error
 
 	var postAlertResp amAPIPostAlertResp
 	request := ProxyPostPod(f.KubeClient, ns, n, "api/v1/alerts", string(b))
-	resp, err := request.DoRaw(context.TODO())
+	resp, err := request.DoRaw()
 	if err != nil {
 		return err
 	}
@@ -347,7 +341,7 @@ func (f *Framework) GetSilences(ns, n string) ([]amAPISil, error) {
 	var getSilencesResponse amAPIGetSilResp
 
 	request := ProxyGetPod(f.KubeClient, ns, n, "/api/v1/silences")
-	resp, err := request.DoRaw(context.TODO())
+	resp, err := request.DoRaw()
 	if err != nil {
 		return getSilencesResponse.Data, err
 	}
@@ -414,8 +408,7 @@ type amAPISil struct {
 }
 
 type amAPIStatusResp struct {
-	Status string          `json:"status"`
-	Data   amAPIStatusData `json:"data"`
+	Data amAPIStatusData `json:"data"`
 }
 
 type amAPIStatusData struct {

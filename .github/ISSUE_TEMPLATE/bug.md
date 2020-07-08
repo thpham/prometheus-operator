@@ -8,10 +8,6 @@ labels: kind/bug
 
 Feel free to ask questions in #prometheus-operator on Kubernetes Slack!
 
-Note: This repository is about prometheus-operator itself, if you have questions about:
-- helm installation, go to https://github.com/helm/charts repository
-- kube-prometheus setup, go to https://github.com/coreos/kube-prometheus
-
 -->
 
 **What happened?**
@@ -34,7 +30,7 @@ Note: This repository is about prometheus-operator itself, if you have questions
 
 * Kubernetes cluster kind:
 
-    insert how you created your cluster: kops, bootkube, etc.
+    insert how you created your cluster: kops, bootkube, tectonic-installer, etc.
 
 * Manifests:
 
