@@ -15,8 +15,12 @@
 package admission
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	jsonpatch "github.com/evanphx/json-patch"
 	"io/ioutil"
+	v1 "k8s.io/api/admission/v1"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -82,15 +86,25 @@ func TestAdmitBadRule(t *testing.T) {
 	if resp.Response.Allowed {
 		t.Errorf("Expected admission to not be allowed but it was")
 	}
-
-	if resp.Response.Result.Details.Causes[0].Message !=
-		`group "test.rules", rule 0, "Test": could not parse expression: parse error at char 10: could not parse remaining input ")"...` {
-		t.Error("Expected error about inability to parse query")
+	{
+		exp := 2
+		act := len(resp.Response.Result.Details.Causes)
+		if act != exp {
+			t.Errorf("Expected %d errors but got %d\n", exp, act)
+		}
 	}
+	{
+		exp := `unexpected right parenthesis ')'`
+		act := resp.Response.Result.Details.Causes[0].Message
+		if !strings.Contains(act, exp) {
+			t.Error("Expected error about inability to parse query")
+		}
 
-	if resp.Response.Result.Details.Causes[1].Message !=
-		`group "test.rules", rule 0, "Test": msg=template: __alert_Test:1: unrecognized character in action: U+201C '“'` {
-		t.Error("Expected error about invalid template")
+		exp = `unrecognized character in action: U+201C`
+		act = resp.Response.Result.Details.Causes[1].Message
+		if !strings.Contains(act, exp) {
+			t.Error("Expected error about invalid character")
+		}
 	}
 }
 
@@ -108,6 +122,39 @@ func TestAdmitBadRuleWithBooleanInAnnotations(t *testing.T) {
 	if resp.Response.Result.Details.Causes[0].Message !=
 		`json: cannot unmarshal bool into Go struct field Rule.spec.groups.rules.annotations of type string` {
 		t.Error("Expected error about inability to parse query")
+	}
+}
+
+func TestMutateNonStringsToStrings(t *testing.T) {
+	request := nonStringsInLabelsAnnotations
+	ts := server(api().servePrometheusRulesMutate)
+	resp := send(t, ts, request)
+	if len(resp.Response.Patch) == 0 {
+		t.Errorf("Expected a patch to be applied but found none")
+	}
+
+	// Apply patch to original request
+	patchObj, err := jsonpatch.DecodePatch(resp.Response.Patch)
+	if err != nil {
+		t.Fatal(err, "Expected a valid patch")
+	}
+	rev := v1.AdmissionReview{}
+	deserializer.Decode(nonStringsInLabelsAnnotations, nil, &rev)
+	rev.Request.Object.Raw, err = patchObj.Apply(rev.Request.Object.Raw)
+	if err != nil {
+		fmt.Println(string(resp.Response.Patch))
+		t.Fatal(err, "Expected to successfully apply patch")
+	}
+	request, _ = json.Marshal(rev)
+
+	// Sent patched request to validation endpoint
+	ts.Close()
+	ts = server(api().servePrometheusRulesValidate)
+	defer ts.Close()
+
+	resp = send(t, ts, request)
+	if !resp.Response.Allowed {
+		t.Errorf("Expected admission to be allowed but it was not")
 	}
 }
 
@@ -135,8 +182,8 @@ func server(s serveFunc) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(s))
 }
 
-func send(t *testing.T, ts *httptest.Server, rules string) *v1beta1.AdmissionReview {
-	resp, err := http.Post(ts.URL, "application/json", strings.NewReader(rules))
+func send(t *testing.T, ts *httptest.Server, rules []byte) *v1beta1.AdmissionReview {
+	resp, err := http.Post(ts.URL, "application/json", bytes.NewReader(rules))
 	if err != nil {
 		t.Errorf("Publish() returned an error: %s", err)
 	}
@@ -154,7 +201,7 @@ func send(t *testing.T, ts *httptest.Server, rules string) *v1beta1.AdmissionRev
 	return rev
 }
 
-var goodRulesWithAnnotations = `
+var goodRulesWithAnnotations = []byte(`
 {
   "kind": "AdmissionReview",
   "apiVersion": "admission.k8s.io/v1beta1",
@@ -218,8 +265,9 @@ var goodRulesWithAnnotations = `
     "dryRun": false
   }
 }
-`
-var goodRulesWithExternalLabelsInAnnotations = `
+`)
+
+var goodRulesWithExternalLabelsInAnnotations = []byte(`
 {
   "kind": "AdmissionReview",
   "apiVersion": "admission.k8s.io/v1beta1",
@@ -282,8 +330,9 @@ var goodRulesWithExternalLabelsInAnnotations = `
     "dryRun": false
   }
 }
-`
-var badRulesNoAnnotations = `
+`)
+
+var badRulesNoAnnotations = []byte(`
 {
   "kind": "AdmissionReview",
   "apiVersion": "admission.k8s.io/v1beta1",
@@ -344,9 +393,9 @@ var badRulesNoAnnotations = `
     "dryRun": false
   }
 }
-`
+`)
 
-var badRulesWithBooleanInAnnotations = `
+var badRulesWithBooleanInAnnotations = []byte(`
 {
   "kind": "AdmissionReview",
   "apiVersion": "admission.k8s.io/v1beta1",
@@ -411,4 +460,77 @@ var badRulesWithBooleanInAnnotations = `
     "dryRun": false
   }
 }
-`
+`)
+
+var nonStringsInLabelsAnnotations = []byte(`
+{
+  "kind": "AdmissionReview",
+  "apiVersion": "admission.k8s.io/v1beta1",
+  "request": {
+    "uid": "87c5df7f-5090-11e9-b9b4-02425473f309",
+    "kind": {
+      "group": "monitoring.coreos.com",
+      "version": "v1",
+      "kind": "PrometheusRule"
+    },
+    "resource": {
+      "group": "monitoring.coreos.com",
+      "version": "v1",
+      "resource": "prometheusrules"
+    },
+    "namespace": "monitoring",
+    "operation": "CREATE",
+    "userInfo": {
+      "username": "kubernetes-admin",
+      "groups": [
+        "system:masters",
+        "system:authenticated"
+      ]
+    },
+    "object": {
+      "apiVersion": "monitoring.coreos.com/v1",
+      "kind": "PrometheusRule",
+      "metadata": {
+        "annotations": {
+          "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"monitoring.coreos.com/v1\",\"kind\":\"PrometheusRule\",\"metadata\":{\"annotations\":{},\"name\":\"test\",\"namespace\":\"monitoring\"},\"spec\":{\"groups\":[{\"name\":\"test.rules\",\"rules\":[{\"alert\":\"Test\",\"annotations\":{\"message\":\"Test rule\"},\"expr\":\"vector(1))\",\"for\":\"5m\",\"labels\":{\"severity\":\"critical\"}}]}]}}\n"
+        },
+        "creationTimestamp": "2019-03-27T13:02:09Z",
+        "generation": 1,
+        "name": "test",
+        "namespace": "monitoring",
+        "uid": "87c5d31d-5090-11e9-b9b4-02425473f309"
+      },
+      "spec": {
+        "groups": [
+          {
+            "name": "test.rules",
+            "rules": [
+              {
+                "alert": "Test",
+                "annotations": {
+                  "annBool": false,
+                  "message": "Test rule",
+                  "annNil": null,
+                  "humanizePercentage": "Should work {{ $value | humanizePercentage }}",
+                  "annEmpty": "",
+                  "annInteger": 1
+                },
+                "expr": "vector(1)",
+                "for": "5m",
+                "labels": {
+                  "severity": "critical",
+                  "labNil": null,
+                  "labInt": 1,
+                  "labEmpty": "",
+                  "labBool": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "oldObject": null,
+    "dryRun": false
+  }
+}`)
