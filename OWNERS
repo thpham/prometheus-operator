@@ -1,7 +1,6 @@
 component: "Monitoring"
 
 reviewers:
-- brancz
 - bwplotka
 - krasi-georgiev
 - LiliC
@@ -13,7 +12,6 @@ reviewers:
 - squat
 
 approvers:
-- brancz
 - bwplotka
 - krasi-georgiev
 - LiliC
