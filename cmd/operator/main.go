@@ -29,13 +29,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/coreos/prometheus-operator/pkg/admission"
-	alertmanagercontroller "github.com/coreos/prometheus-operator/pkg/alertmanager"
-	"github.com/coreos/prometheus-operator/pkg/api"
-	"github.com/coreos/prometheus-operator/pkg/operator"
-	prometheuscontroller "github.com/coreos/prometheus-operator/pkg/prometheus"
-	thanoscontroller "github.com/coreos/prometheus-operator/pkg/thanos"
-	"github.com/coreos/prometheus-operator/pkg/version"
+	"github.com/prometheus-operator/prometheus-operator/pkg/admission"
+	alertmanagercontroller "github.com/prometheus-operator/prometheus-operator/pkg/alertmanager"
+	"github.com/prometheus-operator/prometheus-operator/pkg/api"
+	"github.com/prometheus-operator/prometheus-operator/pkg/k8sutil"
+	"github.com/prometheus-operator/prometheus-operator/pkg/operator"
+	prometheuscontroller "github.com/prometheus-operator/prometheus-operator/pkg/prometheus"
+	thanoscontroller "github.com/prometheus-operator/prometheus-operator/pkg/thanos"
+	"github.com/prometheus-operator/prometheus-operator/pkg/version"
 
 	rbacproxytls "github.com/brancz/kube-rbac-proxy/pkg/tls"
 	"github.com/go-kit/kit/log"
@@ -169,9 +170,9 @@ func init() {
 	flagset.StringVar(&cfg.ConfigReloaderImage, "config-reloader-image", operator.DefaultConfigMapReloaderImage, "Reload Image")
 	flagset.StringVar(&cfg.ConfigReloaderCPU, "config-reloader-cpu", "100m", "Config Reloader CPU. Value \"0\" disables it and causes no limit to be configured.")
 	flagset.StringVar(&cfg.ConfigReloaderMemory, "config-reloader-memory", "25Mi", "Config Reloader Memory. Value \"0\" disables it and causes no limit to be configured.")
-	flagset.StringVar(&cfg.AlertmanagerDefaultBaseImage, "alertmanager-default-base-image", operator.DefaultAlertmanagerBaseImage, "Alertmanager default base image")
-	flagset.StringVar(&cfg.PrometheusDefaultBaseImage, "prometheus-default-base-image", operator.DefaultPrometheusBaseImage, "Prometheus default base image")
-	flagset.StringVar(&cfg.ThanosDefaultBaseImage, "thanos-default-base-image", operator.DefaultThanosBaseImage, "Thanos default base image")
+	flagset.StringVar(&cfg.AlertmanagerDefaultBaseImage, "alertmanager-default-base-image", operator.DefaultAlertmanagerBaseImage, "Alertmanager default base image (path without tag/version)")
+	flagset.StringVar(&cfg.PrometheusDefaultBaseImage, "prometheus-default-base-image", operator.DefaultPrometheusBaseImage, "Prometheus default base image (path without tag/version)")
+	flagset.StringVar(&cfg.ThanosDefaultBaseImage, "thanos-default-base-image", operator.DefaultThanosBaseImage, "Thanos default base image (path without tag/version)")
 	flagset.Var(ns, "namespaces", "Namespaces to scope the interaction of the Prometheus Operator and the apiserver (allow list). This is mutually exclusive with --deny-namespaces.")
 	flagset.Var(deniedNs, "deny-namespaces", "Namespaces not to scope the interaction of the Prometheus Operator (deny list). This is mutually exclusive with --namespaces.")
 	flagset.Var(prometheusNs, "prometheus-instance-namespaces", "Namespaces where Prometheus custom resources and corresponding Secrets, Configmaps and StatefulSets are watched/created. If set this takes precedence over --namespaces or --deny-namespaces for Prometheus custom resources.")
@@ -185,6 +186,7 @@ func init() {
 	flagset.StringVar(&cfg.PromSelector, "prometheus-instance-selector", "", "Label selector to filter Prometheus Custom Resources to watch.")
 	flagset.StringVar(&cfg.AlertManagerSelector, "alertmanager-instance-selector", "", "Label selector to filter AlertManager Custom Resources to watch.")
 	flagset.StringVar(&cfg.ThanosRulerSelector, "thanos-ruler-instance-selector", "", "Label selector to filter ThanosRuler Custom Resources to watch.")
+	flagset.StringVar(&cfg.SecretListWatchSelector, "secret-field-selector", "", "Field selector to filter Secrets to watch")
 }
 
 func Main() int {
@@ -243,22 +245,30 @@ func Main() int {
 		cfg.Namespaces.ThanosRulerAllowList = cfg.Namespaces.AllowList
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	wg, ctx := errgroup.WithContext(ctx)
 	r := prometheus.NewRegistry()
-	po, err := prometheuscontroller.New(cfg, log.With(logger, "component", "prometheusoperator"), r)
+
+	k8sutil.MustRegisterClientGoMetrics(r)
+
+	po, err := prometheuscontroller.New(ctx, cfg, log.With(logger, "component", "prometheusoperator"), r)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating prometheus controller failed: ", err)
+		cancel()
 		return 1
 	}
 
-	ao, err := alertmanagercontroller.New(cfg, log.With(logger, "component", "alertmanageroperator"), r)
+	ao, err := alertmanagercontroller.New(ctx, cfg, log.With(logger, "component", "alertmanageroperator"), r)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating alertmanager controller failed: ", err)
+		cancel()
 		return 1
 	}
 
-	to, err := thanoscontroller.New(cfg, log.With(logger, "component", "thanosoperator"), r)
+	to, err := thanoscontroller.New(ctx, cfg, log.With(logger, "component", "thanosoperator"), r)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating thanos controller failed: ", err)
+		cancel()
 		return 1
 	}
 
@@ -266,6 +276,7 @@ func Main() int {
 	web, err := api.New(cfg, log.With(logger, "component", "api"))
 	if err != nil {
 		fmt.Fprint(os.Stderr, "instantiating api failed: ", err)
+		cancel()
 		return 1
 	}
 	admit := admission.New(log.With(logger, "component", "admissionwebhook"))
@@ -275,6 +286,7 @@ func Main() int {
 	l, err := net.Listen("tcp", cfg.ListenAddress)
 	if err != nil {
 		fmt.Fprint(os.Stderr, "listening failed", cfg.ListenAddress, err)
+		cancel()
 		return 1
 	}
 
@@ -287,6 +299,7 @@ func Main() int {
 			cfg.ServerTLSConfig.ClientCAFile, cfg.ServerTLSConfig.MinVersion, cfg.ServerTLSConfig.CipherSuites)
 		if tlsConfig == nil || err != nil {
 			fmt.Fprint(os.Stderr, "invalid TLS config", err)
+			cancel()
 			return 1
 		}
 	}
@@ -320,12 +333,9 @@ func Main() int {
 	mux.Handle("/debug/pprof/symbol", http.HandlerFunc(pprof.Symbol))
 	mux.Handle("/debug/pprof/trace", http.HandlerFunc(pprof.Trace))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	wg, ctx := errgroup.WithContext(ctx)
-
-	wg.Go(func() error { return po.Run(ctx.Done()) })
-	wg.Go(func() error { return ao.Run(ctx.Done()) })
-	wg.Go(func() error { return to.Run(ctx.Done()) })
+	wg.Go(func() error { return po.Run(ctx) })
+	wg.Go(func() error { return ao.Run(ctx) })
+	wg.Go(func() error { return to.Run(ctx) })
 
 	if tlsConfig != nil {
 		r, err := rbacproxytls.NewCertReloader(
@@ -335,6 +345,7 @@ func Main() int {
 		)
 		if err != nil {
 			fmt.Fprint(os.Stderr, "failed to initialize certificate reloader", err)
+			cancel()
 			return 1
 		}
 

@@ -27,10 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/blang/semver"
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/coreos/prometheus-operator/pkg/k8sutil"
-	"github.com/coreos/prometheus-operator/pkg/operator"
 	"github.com/pkg/errors"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus-operator/prometheus-operator/pkg/k8sutil"
+	"github.com/prometheus-operator/prometheus-operator/pkg/operator"
 )
 
 const (
@@ -54,14 +54,8 @@ func makeStatefulSet(am *monitoringv1.Alertmanager, old *appsv1.StatefulSet, con
 	// Ideally we would do it before storing but that's currently not possible.
 	// Potentially an update handler on first insertion.
 
-	if am.Spec.BaseImage == "" {
-		am.Spec.BaseImage = config.AlertmanagerDefaultBaseImage
-	}
 	if am.Spec.PortName == "" {
 		am.Spec.PortName = defaultPortName
-	}
-	if am.Spec.Version == "" {
-		am.Spec.Version = operator.DefaultAlertmanagerVersion
 	}
 	if am.Spec.Replicas == nil {
 		am.Spec.Replicas = &minReplicas
@@ -215,25 +209,22 @@ func makeStatefulSetService(p *monitoringv1.Alertmanager, config Config) *v1.Ser
 
 func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.StatefulSetSpec, error) {
 	// Before editing 'a' create deep copy, to prevent side effects. For more
-	// details see https://github.com/coreos/prometheus-operator/issues/1659
+	// details see https://github.com/prometheus-operator/prometheus-operator/issues/1659
 	a = a.DeepCopy()
 
-	// Version is used by default.
-	// If the tag is specified, we use the tag to identify the container image.
-	// If the sha is specified, we use the sha to identify the container image,
-	// as it has even stronger immutable guarantees to identify the image.
-	image := fmt.Sprintf("%s:%s", a.Spec.BaseImage, a.Spec.Version)
-	if a.Spec.Tag != "" {
-		image = fmt.Sprintf("%s:%s", a.Spec.BaseImage, a.Spec.Tag)
+	amBaseImage := operator.StringValOrDefault(a.Spec.BaseImage, operator.DefaultAlertmanagerBaseImage)
+	amVersion := operator.StringValOrDefault(a.Spec.Version, operator.DefaultAlertmanagerVersion)
+	amTag := operator.StringValOrDefault(a.Spec.Tag, "")
+	amSHA := operator.StringValOrDefault(a.Spec.SHA, "")
+	amImagePath, err := operator.BuildImagePath(amBaseImage, amVersion, amTag, amSHA)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to build image path")
 	}
-	if a.Spec.SHA != "" {
-		image = fmt.Sprintf("%s@sha256:%s", a.Spec.BaseImage, a.Spec.SHA)
-	}
-	if a.Spec.Image != nil && *a.Spec.Image != "" {
-		image = *a.Spec.Image
+	if a.Spec.Image != nil && strings.TrimSpace(*a.Spec.Image) != "" {
+		amImagePath = *a.Spec.Image
 	}
 
-	version, err := semver.ParseTolerant(a.Spec.Version)
+	version, err := semver.ParseTolerant(amVersion)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse alertmanager version")
 	}
@@ -244,7 +235,7 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 		fmt.Sprintf("--data.retention=%s", a.Spec.Retention),
 	}
 
-	if *a.Spec.Replicas == 1 {
+	if *a.Spec.Replicas == 1 && !a.Spec.ForceEnableClusterMode {
 		amArgs = append(amArgs, "--cluster.listen-address=")
 	} else {
 		amArgs = append(amArgs, "--cluster.listen-address=[$(POD_IP)]:9094")
@@ -320,6 +311,10 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 
 	podAnnotations := map[string]string{}
 	podLabels := map[string]string{}
+	podSelectorLabels := map[string]string{
+		"app":          "alertmanager",
+		"alertmanager": a.Name,
+	}
 	if a.Spec.PodMetadata != nil {
 		if a.Spec.PodMetadata.Labels != nil {
 			for k, v := range a.Spec.PodMetadata.Labels {
@@ -332,8 +327,9 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 			}
 		}
 	}
-	podLabels["app"] = "alertmanager"
-	podLabels["alertmanager"] = a.Name
+	for k, v := range podSelectorLabels {
+		podLabels[k] = v
+	}
 
 	var clusterPeerDomain string
 	if config.ClusterDomain != "" {
@@ -388,6 +384,12 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 				// below Alertmanager v0.15.0 high availability flags are prefixed with 'mesh' instead of 'cluster'
 				amArgs[i] = strings.Replace(amArgs[i], "--cluster.", "--mesh.", 1)
 			}
+		} else {
+			// reconnect-timeout was added in 0.15 (https://github.com/prometheus/alertmanager/pull/1384)
+			// Override default 6h value to allow AlertManager cluster to
+			// quickly remove a cluster member after its pod restarted or during a
+			// regular rolling update.
+			amArgs = append(amArgs, "--cluster.reconnect-timeout=5m")
 		}
 		if version.Minor < 13 {
 			for i := range amArgs {
@@ -435,6 +437,15 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 		},
 	}
 
+	reloadWatchDirs := []string{alertmanagerConfDir}
+	configReloaderVolumeMounts := []v1.VolumeMount{
+		{
+			Name:      "config-volume",
+			MountPath: alertmanagerConfDir,
+			ReadOnly:  true,
+		},
+	}
+
 	for _, s := range a.Spec.Secrets {
 		volumes = append(volumes, v1.Volume{
 			Name: k8sutil.SanitizeVolumeName("secret-" + s),
@@ -444,11 +455,15 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 				},
 			},
 		})
-		amVolumeMounts = append(amVolumeMounts, v1.VolumeMount{
+		mountPath := secretsDir + s
+		mount := v1.VolumeMount{
 			Name:      k8sutil.SanitizeVolumeName("secret-" + s),
 			ReadOnly:  true,
-			MountPath: secretsDir + s,
-		})
+			MountPath: mountPath,
+		}
+		amVolumeMounts = append(amVolumeMounts, mount)
+		configReloaderVolumeMounts = append(configReloaderVolumeMounts, mount)
+		reloadWatchDirs = append(reloadWatchDirs, mountPath)
 	}
 
 	for _, c := range a.Spec.ConfigMaps {
@@ -462,11 +477,15 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 				},
 			},
 		})
-		amVolumeMounts = append(amVolumeMounts, v1.VolumeMount{
+		mountPath := configmapsDir + c
+		mount := v1.VolumeMount{
 			Name:      k8sutil.SanitizeVolumeName("configmap-" + c),
 			ReadOnly:  true,
-			MountPath: configmapsDir + c,
-		})
+			MountPath: mountPath,
+		}
+		amVolumeMounts = append(amVolumeMounts, mount)
+		configReloaderVolumeMounts = append(configReloaderVolumeMounts, mount)
+		reloadWatchDirs = append(reloadWatchDirs, mountPath)
 	}
 
 	amVolumeMounts = append(amVolumeMounts, a.Spec.VolumeMounts...)
@@ -480,13 +499,20 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 	}
 
 	terminationGracePeriod := int64(120)
+	finalSelectorLabels := config.Labels.Merge(podSelectorLabels)
 	finalLabels := config.Labels.Merge(podLabels)
 
+	configReloaderArgs := []string{
+		fmt.Sprintf("-webhook-url=%s", localReloadURL),
+	}
+	for _, reloadWatchDir := range reloadWatchDirs {
+		configReloaderArgs = append(configReloaderArgs, fmt.Sprintf("-volume-dir=%s", reloadWatchDir))
+	}
 	defaultContainers := []v1.Container{
 		{
 			Args:           amArgs,
 			Name:           "alertmanager",
-			Image:          image,
+			Image:          amImagePath,
 			Ports:          ports,
 			VolumeMounts:   amVolumeMounts,
 			LivenessProbe:  livenessProbe,
@@ -505,19 +531,10 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 			},
 			TerminationMessagePolicy: v1.TerminationMessageFallbackToLogsOnError,
 		}, {
-			Name:  "config-reloader",
-			Image: config.ConfigReloaderImage,
-			Args: []string{
-				fmt.Sprintf("-webhook-url=%s", localReloadURL),
-				fmt.Sprintf("-volume-dir=%s", alertmanagerConfDir),
-			},
-			VolumeMounts: []v1.VolumeMount{
-				{
-					Name:      "config-volume",
-					ReadOnly:  true,
-					MountPath: alertmanagerConfDir,
-				},
-			},
+			Name:                     "config-reloader",
+			Image:                    config.ConfigReloaderImage,
+			Args:                     configReloaderArgs,
+			VolumeMounts:             configReloaderVolumeMounts,
 			Resources:                resources,
 			TerminationMessagePolicy: v1.TerminationMessageFallbackToLogsOnError,
 		},
@@ -538,7 +555,7 @@ func makeStatefulSetSpec(a *monitoringv1.Alertmanager, config Config) (*appsv1.S
 			Type: appsv1.RollingUpdateStatefulSetStrategyType,
 		},
 		Selector: &metav1.LabelSelector{
-			MatchLabels: finalLabels,
+			MatchLabels: finalSelectorLabels,
 		},
 		Template: v1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{

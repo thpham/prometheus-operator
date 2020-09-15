@@ -23,15 +23,17 @@ import (
 	"strings"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/coreos/prometheus-operator/pkg/alertmanager"
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus-operator/prometheus-operator/pkg/alertmanager"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/pkg/errors"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/textparse"
 )
 
 var ValidAlertmanagerConfig = `global:
@@ -128,12 +130,12 @@ func (f *Framework) CreateAlertmanagerAndWaitUntilReady(ns string, a *monitoring
 		return nil, errors.Wrap(err, fmt.Sprintf("creating alertmanager %v failed", a.Name))
 	}
 
-	return a, f.WaitForAlertmanagerReady(ns, a.Name, int(*a.Spec.Replicas))
+	return a, f.WaitForAlertmanagerReady(ns, a.Name, int(*a.Spec.Replicas), a.Spec.ForceEnableClusterMode)
 }
 
 // WaitForAlertmanagerReady waits for each individual pod as well as the
 // cluster as a whole to be ready.
-func (f *Framework) WaitForAlertmanagerReady(ns, name string, replicas int) error {
+func (f *Framework) WaitForAlertmanagerReady(ns, name string, replicas int, forceEnableClusterMode bool) error {
 	if err := WaitForPodsReady(
 		f.KubeClient,
 		ns,
@@ -150,7 +152,7 @@ func (f *Framework) WaitForAlertmanagerReady(ns, name string, replicas int) erro
 
 	for i := 0; i < replicas; i++ {
 		name := fmt.Sprintf("alertmanager-%v-%v", name, strconv.Itoa(i))
-		if err := f.WaitForAlertmanagerInitialized(ns, name, replicas); err != nil {
+		if err := f.WaitForAlertmanagerInitialized(ns, name, replicas, forceEnableClusterMode); err != nil {
 			return errors.Wrap(err,
 				fmt.Sprintf(
 					"failed to wait for an Alertmanager cluster (%s) with %d instances to become ready",
@@ -210,7 +212,7 @@ func amImage(version string) string {
 	return fmt.Sprintf("quay.io/prometheus/alertmanager:%s", version)
 }
 
-func (f *Framework) WaitForAlertmanagerInitialized(ns, name string, amountPeers int) error {
+func (f *Framework) WaitForAlertmanagerInitialized(ns, name string, amountPeers int, forceEnableClusterMode bool) error {
 	var pollError error
 	err := wait.Poll(time.Second, time.Minute*5, func() (bool, error) {
 		amStatus, err := f.GetAlertmanagerStatus(ns, name)
@@ -218,7 +220,7 @@ func (f *Framework) WaitForAlertmanagerInitialized(ns, name string, amountPeers 
 			return false, err
 		}
 
-		isAlertmanagerInClusterMode := amountPeers > 1
+		isAlertmanagerInClusterMode := amountPeers > 1 || forceEnableClusterMode
 		if !isAlertmanagerInClusterMode && amStatus.Status == "success" {
 			return true, nil
 		}
@@ -263,6 +265,15 @@ func (f *Framework) GetAlertmanagerStatus(ns, n string) (amAPIStatusResp, error)
 	}
 
 	return amStatus, nil
+}
+
+func (f *Framework) GetAlertmanagerMetrics(ns, n string) (textparse.Parser, error) {
+	request := ProxyGetPod(f.KubeClient, ns, n, "/metrics")
+	resp, err := request.DoRaw(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+	return textparse.NewPromParser(resp), nil
 }
 
 func (f *Framework) CreateSilence(ns, n string) (string, error) {
@@ -385,6 +396,46 @@ func (f *Framework) WaitForAlertmanagerConfigToContainString(ns, amName, expecte
 
 	if err != nil {
 		return fmt.Errorf("failed to wait for alertmanager config to contain %q: %v", expectedString, err)
+	}
+
+	return nil
+}
+
+func (f *Framework) WaitForAlertmanagerConfigToBeReloaded(ns, amName string, previousReloadTimestamp time.Time) error {
+	const configReloadMetricName = "alertmanager_config_last_reload_success_timestamp_seconds"
+	err := wait.Poll(10*time.Second, time.Minute*5, func() (bool, error) {
+		parser, err := f.GetAlertmanagerMetrics(ns, "alertmanager-"+amName+"-0")
+		if err != nil {
+			return false, err
+		}
+
+		for {
+			entry, err := parser.Next()
+			if err != nil {
+				return false, err
+			}
+			if entry == textparse.EntryInvalid {
+				return false, fmt.Errorf("invalid prometheus metric entry")
+			}
+			if entry != textparse.EntrySeries {
+				continue
+			}
+
+			seriesLabels := labels.Labels{}
+			parser.Metric(&seriesLabels)
+
+			if seriesLabels.Get("__name__") != configReloadMetricName {
+				continue
+			}
+
+			_, _, timestampSec := parser.Series()
+			timestamp := time.Unix(int64(timestampSec), 0)
+			return timestamp.After(previousReloadTimestamp), nil
+		}
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to wait for alertmanager config to have been reloaded after %v: %v", previousReloadTimestamp, err)
 	}
 
 	return nil

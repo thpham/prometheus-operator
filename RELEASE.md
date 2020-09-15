@@ -8,11 +8,14 @@ Release cadence of first pre-releases being cut is 6 weeks.
 |---------|--------------------------------------------|---------------------------------------------|
 | v0.39   | 2020-05-06                                 | Pawel Krupa (GitHub: @paulfantom)           |
 | v0.40   | 2020-06-17                                 | Lili Cosic (GitHub: @lilic)                 |
-| v0.41   | 2020-07-29                                 | **searching for volunteer**                 |
+| v0.41   | 2020-07-29                                 | Sergiusz Urbaniak (GitHub: @s-urbaniak)     |
+| v0.42   | 2020-09-09                                 | Matthias Loibl (GitHub: @metalmatze)        |
+| v0.43   | 2020-10-21                                 | Simon Pasquier (GitHub: @simonpasquier)     |
+| v0.44   | 2020-12-02                                 | **searching for volunteer**                 |
 
 # How to cut a new release
 
-> This guide is strongly based on the [Prometheus release instructions](https://github.com/prometheus/prometheus/wiki/HOWTO-cut-a-new-release).
+> This guide is strongly based on the [Prometheus release instructions](https://github.com/prometheus/prometheus/blob/master/RELEASE.md).
 
 ## Branch management and versioning strategy
 
@@ -35,7 +38,7 @@ For a new major or minor release, create the corresponding release branch based 
 Bump the version in the `VERSION` file in the root of the repository. Once that's done, a number of files have to be re-generated, this is automated with the following make target:
 
 ```bash
-$ make generate
+$ make clean generate
 ```
 
 Now that all version information has been updated, an entry for the new version can be added to the `CHANGELOG.md` file.
@@ -68,6 +71,6 @@ Signed tag with a GPG key is appreciated, but in case you can't add a GPG key to
 
 Our CI pipeline will automatically push a new docker image to quay.io.
 
-Go to  https://github.com/coreos/prometheus-operator/releases/new, associate the new release with the before pushed tag, paste in changes made to `CHANGELOG.md` and click "Publish release".
+Go to  https://github.com/prometheus-operator/prometheus-operator/releases/new, associate the new release with the before pushed tag, paste in changes made to `CHANGELOG.md` and click "Publish release".
 
 Take a breath. You're done releasing.

@@ -27,10 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/blang/semver"
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/coreos/prometheus-operator/pkg/k8sutil"
-	"github.com/coreos/prometheus-operator/pkg/operator"
 	"github.com/pkg/errors"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus-operator/prometheus-operator/pkg/k8sutil"
+	"github.com/prometheus-operator/prometheus-operator/pkg/operator"
 )
 
 const (
@@ -70,31 +70,17 @@ func makeStatefulSet(
 	// p is passed in by value, not by reference. But p contains references like
 	// to annotation map, that do not get copied on function invocation. Ensure to
 	// prevent side effects before editing p by creating a deep copy. For more
-	// details see https://github.com/coreos/prometheus-operator/issues/1659.
+	// details see https://github.com/prometheus-operator/prometheus-operator/issues/1659.
 	p = *p.DeepCopy()
 
-	// TODO(fabxc): is this the right point to inject defaults?
-	// Ideally we would do it before storing but that's currently not possible.
-	// Potentially an update handler on first insertion.
-
-	if p.Spec.BaseImage == "" {
-		p.Spec.BaseImage = config.PrometheusDefaultBaseImage
-	}
-	if p.Spec.Version == "" {
-		p.Spec.Version = operator.DefaultPrometheusVersion
-	}
-	if p.Spec.Thanos != nil && p.Spec.Thanos.Version == nil {
-		v := operator.DefaultThanosVersion
-		p.Spec.Thanos.Version = &v
+	promVersion := operator.StringValOrDefault(p.Spec.Version, operator.DefaultPrometheusVersion)
+	parsedVersion, err := semver.ParseTolerant(promVersion)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to parse prometheus version")
 	}
 
 	if p.Spec.PortName == "" {
 		p.Spec.PortName = defaultPortName
-	}
-
-	version, err := semver.ParseTolerant(p.Spec.Version)
-	if err != nil {
-		return nil, errors.Wrap(err, "parse version")
 	}
 
 	if p.Spec.Replicas == nil {
@@ -113,7 +99,7 @@ func makeStatefulSet(
 	}
 	_, memoryRequestFound := p.Spec.Resources.Requests[v1.ResourceMemory]
 	memoryLimit, memoryLimitFound := p.Spec.Resources.Limits[v1.ResourceMemory]
-	if !memoryRequestFound && version.Major == 1 {
+	if !memoryRequestFound && parsedVersion.Major == 1 {
 		defaultMemoryRequest := resource.MustParse("2Gi")
 		compareResult := memoryLimit.Cmp(defaultMemoryRequest)
 		// If limit is given and smaller or equal to 2Gi, then set memory
@@ -126,7 +112,7 @@ func makeStatefulSet(
 		}
 	}
 
-	spec, err := makeStatefulSetSpec(p, config, ruleConfigMapNames)
+	spec, err := makeStatefulSetSpec(p, config, ruleConfigMapNames, parsedVersion)
 	if err != nil {
 		return nil, errors.Wrap(err, "make StatefulSet spec")
 	}
@@ -289,16 +275,20 @@ func makeStatefulSetService(p *monitoringv1.Prometheus, config Config) *v1.Servi
 	return svc
 }
 
-func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapNames []string) (*appsv1.StatefulSetSpec, error) {
+func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapNames []string,
+	version semver.Version) (*appsv1.StatefulSetSpec, error) {
 	// Prometheus may take quite long to shut down to checkpoint existing data.
 	// Allow up to 10 minutes for clean termination.
 	terminationGracePeriod := int64(600)
 
-	version, err := semver.ParseTolerant(p.Spec.Version)
-	if err != nil {
-		return nil, errors.Wrap(err, "parse version")
+	baseImage := operator.StringValOrDefault(p.Spec.BaseImage, operator.DefaultPrometheusBaseImage)
+	if p.Spec.Image != nil && strings.TrimSpace(*p.Spec.Image) != "" {
+		baseImage = *p.Spec.Image
 	}
-
+	prometheusImagePath, err := operator.BuildImagePath(baseImage, p.Spec.Version, p.Spec.Tag, p.Spec.SHA)
+	if err != nil {
+		return nil, err
+	}
 	promArgs := []string{
 		"-web.console.templates=/etc/prometheus/consoles",
 		"-web.console.libraries=/etc/prometheus/console_libraries",
@@ -429,6 +419,10 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		} else {
 			promArgs = append(promArgs, "-no-storage.tsdb.wal-compression")
 		}
+	}
+
+	if version.GTE(semver.MustParse("2.8.0")) && p.Spec.AllowOverlappingBlocks {
+		promArgs = append(promArgs, "-storage.tsdb.allow-overlapping-blocks")
 	}
 
 	var ports []v1.ContainerPort
@@ -653,6 +647,10 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 
 	podAnnotations := map[string]string{}
 	podLabels := map[string]string{}
+	podSelectorLabels := map[string]string{
+		"app":        "prometheus",
+		"prometheus": p.Name,
+	}
 	if p.Spec.PodMetadata != nil {
 		if p.Spec.PodMetadata.Labels != nil {
 			for k, v := range p.Spec.PodMetadata.Labels {
@@ -666,9 +664,11 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		}
 	}
 
-	podLabels["app"] = "prometheus"
-	podLabels["prometheus"] = p.Name
+	for k, v := range podSelectorLabels {
+		podLabels[k] = v
+	}
 
+	finalSelectorLabels := c.Labels.Merge(podSelectorLabels)
 	finalLabels := c.Labels.Merge(podLabels)
 
 	var additionalContainers []v1.Container
@@ -709,24 +709,19 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 
 	disableCompaction := p.Spec.DisableCompaction
 	if p.Spec.Thanos != nil {
-		// Version is used by default.
-		// If the tag is specified, we use the tag to identify the container image.
-		// If the sha is specified, we use the sha to identify the container image,
-		// as it has even stronger immutable guarantees to identify the image.
-		thanosBaseImage := c.ThanosDefaultBaseImage
-		if p.Spec.Thanos.BaseImage != nil {
-			thanosBaseImage = *p.Spec.Thanos.BaseImage
+		thBaseImage := operator.StringPtrValOrDefault(p.Spec.Thanos.BaseImage, operator.DefaultThanosBaseImage)
+		thVersion := operator.StringPtrValOrDefault(p.Spec.Thanos.Version, operator.DefaultThanosVersion)
+		thTag := operator.StringPtrValOrDefault(p.Spec.Thanos.Tag, "")
+		thSHA := operator.StringPtrValOrDefault(p.Spec.Thanos.SHA, "")
+		thanosImage, err := operator.BuildImagePath(thBaseImage, thVersion, thTag, thSHA)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to build image path")
 		}
-		thanosImage := fmt.Sprintf("%s:%s", thanosBaseImage, *p.Spec.Thanos.Version)
-		if p.Spec.Thanos.Tag != nil {
-			thanosImage = fmt.Sprintf("%s:%s", thanosBaseImage, *p.Spec.Thanos.Tag)
-		}
-		if p.Spec.Thanos.SHA != nil {
-			thanosImage = fmt.Sprintf("%s@sha256:%s", thanosBaseImage, *p.Spec.Thanos.SHA)
-		}
-		if p.Spec.Thanos.Image != nil && *p.Spec.Thanos.Image != "" {
+		// If the image path is set in the custom resource, override other image settings.
+		if p.Spec.Thanos.Image != nil && strings.TrimSpace(*p.Spec.Thanos.Image) != "" {
 			thanosImage = *p.Spec.Thanos.Image
 		}
+
 		bindAddress := "[$(POD_IP)]"
 		if p.Spec.Thanos.ListenLocal {
 			bindAddress = "127.0.0.1"
@@ -830,21 +825,6 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 		promArgs = append(promArgs, "--storage.tsdb.max-block-duration=2h")
 	}
 
-	// Version is used by default.
-	// If the tag is specified, we use the tag to identify the container image.
-	// If the sha is specified, we use the sha to identify the container image,
-	// as it has even stronger immutable guarantees to identify the image.
-	prometheusImage := fmt.Sprintf("%s:%s", p.Spec.BaseImage, p.Spec.Version)
-	if p.Spec.Tag != "" {
-		prometheusImage = fmt.Sprintf("%s:%s", p.Spec.BaseImage, p.Spec.Tag)
-	}
-	if p.Spec.SHA != "" {
-		prometheusImage = fmt.Sprintf("%s@sha256:%s", p.Spec.BaseImage, p.Spec.SHA)
-	}
-	if p.Spec.Image != nil && *p.Spec.Image != "" {
-		prometheusImage = *p.Spec.Image
-	}
-
 	prometheusConfigReloaderResources := v1.ResourceRequirements{
 		Limits: v1.ResourceList{}, Requests: v1.ResourceList{}}
 	if c.ConfigReloaderCPU != "0" {
@@ -859,7 +839,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 	operatorContainers := append([]v1.Container{
 		{
 			Name:                     "prometheus",
-			Image:                    prometheusImage,
+			Image:                    prometheusImagePath,
 			Ports:                    ports,
 			Args:                     promArgs,
 			VolumeMounts:             promVolumeMounts,
@@ -900,7 +880,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
 			Type: appsv1.RollingUpdateStatefulSetStrategyType,
 		},
 		Selector: &metav1.LabelSelector{
-			MatchLabels: finalLabels,
+			MatchLabels: finalSelectorLabels,
 		},
 		Template: v1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{

@@ -17,7 +17,7 @@
 package v1
 
 import (
-	internalinterfaces "github.com/coreos/prometheus-operator/pkg/client/informers/externalversions/internalinterfaces"
+	internalinterfaces "github.com/prometheus-operator/prometheus-operator/pkg/client/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to all the informers in this group version.
@@ -26,6 +26,8 @@ type Interface interface {
 	Alertmanagers() AlertmanagerInformer
 	// PodMonitors returns a PodMonitorInformer.
 	PodMonitors() PodMonitorInformer
+	// Probes returns a ProbeInformer.
+	Probes() ProbeInformer
 	// Prometheuses returns a PrometheusInformer.
 	Prometheuses() PrometheusInformer
 	// PrometheusRules returns a PrometheusRuleInformer.
@@ -55,6 +57,11 @@ func (v *version) Alertmanagers() AlertmanagerInformer {
 // PodMonitors returns a PodMonitorInformer.
 func (v *version) PodMonitors() PodMonitorInformer {
 	return &podMonitorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Probes returns a ProbeInformer.
+func (v *version) Probes() ProbeInformer {
+	return &probeInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Prometheuses returns a PrometheusInformer.

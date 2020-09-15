@@ -21,8 +21,8 @@ import (
 	"log"
 	"os"
 
-	v1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/ghodss/yaml"
+	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -113,6 +113,19 @@ func main() {
 			if err != nil {
 				log.Fatalf("podMonitor is invalid: %v", err)
 			}
+		case v1.ProbesKind:
+			j, err := yaml.YAMLToJSON(content)
+			if err != nil {
+				log.Fatalf("unable to convert YALM to JSON: %v", err)
+			}
+
+			decoder := json.NewDecoder(bytes.NewBuffer(j))
+			decoder.DisallowUnknownFields()
+
+			var probe v1.Probe
+			if err := decoder.Decode(&probe); err != nil {
+				log.Fatalf("probe is invalid: %v", err)
+			}
 		case v1.ThanosRulerKind:
 			j, err := yaml.YAMLToJSON(content)
 			if err != nil {
@@ -128,7 +141,7 @@ func main() {
 				log.Fatalf("thanosRuler is invalid: %v", err)
 			}
 		default:
-			log.Fatal("MetaType is unknown to linter. Not in Alertmanager, Prometheus, PrometheusRule, ServiceMonitor, PodMonitor, ThanosRuler")
+			log.Fatal("MetaType is unknown to linter. Not in Alertmanager, Prometheus, PrometheusRule, ServiceMonitor, PodMonitor, Probe, ThanosRuler")
 		}
 	}
 }

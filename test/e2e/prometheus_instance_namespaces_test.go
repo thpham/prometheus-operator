@@ -18,8 +18,8 @@ import (
 	"context"
 	"testing"
 
-	testFramework "github.com/coreos/prometheus-operator/test/framework"
 	"github.com/pkg/errors"
+	testFramework "github.com/prometheus-operator/prometheus-operator/test/framework"
 	v1 "k8s.io/api/core/v1"
 	api_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -177,7 +177,7 @@ func testPrometheusInstanceNamespaces_DenyList(t *testing.T) {
 		t.Fatalf("expected not to find a Prometheus statefulset, but did: %v/%v", sts.Namespace, sts.Name)
 	}
 
-	if err := framework.WaitForTargets(instanceNs, "prometheus-instance", 0); err != nil {
+	if err := framework.WaitForActiveTargets(instanceNs, "prometheus-instance", 0); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -292,7 +292,7 @@ func testPrometheusInstanceNamespaces_AllowList(t *testing.T) {
 			t.Fatal("Creating ServiceMonitor failed: ", err)
 		}
 
-		if err := framework.WaitForTargets(instanceNs, "prometheus-instance", 1); err != nil {
+		if err := framework.WaitForActiveTargets(instanceNs, "prometheus-instance", 1); err != nil {
 			t.Fatal(err)
 		}
 	}

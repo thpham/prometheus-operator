@@ -18,9 +18,10 @@ import (
 	"context"
 	"testing"
 
-	testFramework "github.com/coreos/prometheus-operator/test/framework"
 	"github.com/gogo/protobuf/proto"
+
 	"github.com/pkg/errors"
+	testFramework "github.com/prometheus-operator/prometheus-operator/test/framework"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	api_errors "k8s.io/apimachinery/pkg/api/errors"
@@ -166,7 +167,7 @@ func testDenyServiceMonitor(t *testing.T) {
 			t.Fatal("Creating ServiceMonitor failed: ", err)
 		}
 
-		if err := framework.WaitForTargets(allowed, svc.Name, 1); err != nil {
+		if err := framework.WaitForActiveTargets(allowed, svc.Name, 1); err != nil {
 			t.Fatal(err)
 		}
 	}

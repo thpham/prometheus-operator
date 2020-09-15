@@ -31,6 +31,7 @@ type Metrics struct {
 	listFailedCounter      prometheus.Counter
 	watchCounter           prometheus.Counter
 	watchFailedCounter     prometheus.Counter
+	reconcileCounter       prometheus.Counter
 	reconcileErrorsCounter prometheus.Counter
 	stsDeleteCreateCounter prometheus.Counter
 	// triggerByCounter is a set of counters keeping track of the amount
@@ -46,9 +47,13 @@ func NewMetrics(name string, r prometheus.Registerer) *Metrics {
 	reg := prometheus.WrapRegistererWith(prometheus.Labels{"controller": name}, r)
 	m := Metrics{
 		reg: reg,
+		reconcileCounter: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_operator_reconcile_operations_total",
+			Help: "Total number of reconcile operations",
+		}),
 		reconcileErrorsCounter: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_operator_reconcile_errors_total",
-			Help: "Number of errors that occurred while reconciling the statefulset",
+			Help: "Number of errors that occurred during reconcile operations",
 		}),
 		triggerByCounter: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_operator_triggered_total",
@@ -77,6 +82,7 @@ func NewMetrics(name string, r prometheus.Registerer) *Metrics {
 		}),
 	}
 	m.reg.MustRegister(
+		m.reconcileCounter,
 		m.reconcileErrorsCounter,
 		m.triggerByCounter,
 		m.stsDeleteCreateCounter,
@@ -86,6 +92,11 @@ func NewMetrics(name string, r prometheus.Registerer) *Metrics {
 		m.watchFailedCounter,
 	)
 	return &m
+}
+
+// ReconcileCounter returns a counter to track attempted reconciliations.
+func (m *Metrics) ReconcileCounter() prometheus.Counter {
+	return m.reconcileCounter
 }
 
 // ReconcileErrorsCounter returns a counter to track reconciliation errors.
@@ -145,6 +156,40 @@ func (i *instrumentedListerWatcher) Watch(options metav1.ListOptions) (watch.Int
 		i.watchFailed.Inc()
 	}
 	return ret, err
+}
+
+type storeCollector struct {
+	desc  *prometheus.Desc
+	store cache.Store
+}
+
+// NewStoreCollector returns a metrics collector that returns the current number of resources in the store.
+func NewStoreCollector(resource string, s cache.Store) prometheus.Collector {
+	return &storeCollector{
+		desc: prometheus.NewDesc(
+			"prometheus_operator_resources",
+			"Number of resources managed by the operator's controller",
+			nil,
+			map[string]string{
+				"resource": resource,
+			},
+		),
+		store: s,
+	}
+}
+
+// Describe implements the prometheus.Collector interface.
+func (c *storeCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.desc
+}
+
+// Collect implements the prometheus.Collector interface.
+func (c *storeCollector) Collect(ch chan<- prometheus.Metric) {
+	ch <- prometheus.MustNewConstMetric(
+		c.desc,
+		prometheus.GaugeValue,
+		float64(len(c.store.List())),
+	)
 }
 
 // SanitizeSTS removes values for APIVersion and Kind from the VolumeClaimTemplates.
