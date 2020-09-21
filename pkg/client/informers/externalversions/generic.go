@@ -19,7 +19,7 @@ package externalversions
 import (
 	"fmt"
 
-	v1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
+	v1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -55,6 +55,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Monitoring().V1().Alertmanagers().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("podmonitors"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Monitoring().V1().PodMonitors().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("probes"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Monitoring().V1().Probes().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("prometheuses"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Monitoring().V1().Prometheuses().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("prometheusrules"):

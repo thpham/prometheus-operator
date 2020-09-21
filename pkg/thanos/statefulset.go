@@ -20,10 +20,10 @@ import (
 	"path"
 	"strings"
 
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/coreos/prometheus-operator/pkg/k8sutil"
-	"github.com/coreos/prometheus-operator/pkg/operator"
 	"github.com/pkg/errors"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus-operator/prometheus-operator/pkg/k8sutil"
+	"github.com/prometheus-operator/prometheus-operator/pkg/operator"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -53,12 +53,6 @@ var (
 
 func makeStatefulSet(tr *monitoringv1.ThanosRuler, config Config, ruleConfigMapNames []string, inputHash string) (*appsv1.StatefulSet, error) {
 
-	if tr.Spec.Image == "" {
-		tr.Spec.Image = config.ThanosDefaultBaseImage
-	}
-	if !strings.Contains(tr.Spec.Image, ":") {
-		tr.Spec.Image = tr.Spec.Image + ":" + operator.DefaultThanosVersion
-	}
 	if tr.Spec.Resources.Requests == nil {
 		tr.Spec.Resources.Requests = v1.ResourceList{}
 	}
@@ -151,11 +145,20 @@ func makeStatefulSet(tr *monitoringv1.ThanosRuler, config Config, ruleConfigMapN
 
 func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfigMapNames []string) (*appsv1.StatefulSetSpec, error) {
 	// Before editing 'tr' create deep copy, to prevent side effects. For more
-	// details see https://github.com/coreos/prometheus-operator/issues/1659
+	// details see https://github.com/prometheus-operator/prometheus-operator/issues/1659
 	tr = tr.DeepCopy()
 
 	if tr.Spec.QueryConfig == nil && len(tr.Spec.QueryEndpoints) < 1 {
 		return nil, errors.New(tr.GetName() + ": thanos ruler requires query config or at least one query endpoint to be specified")
+	}
+
+	trBaseImage := operator.StringValOrDefault(config.ThanosDefaultBaseImage, operator.DefaultThanosBaseImage)
+	trImagePath, err := operator.BuildImagePath(trBaseImage, operator.DefaultThanosVersion, "", "")
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to build image path")
+	}
+	if strings.TrimSpace(tr.Spec.Image) != "" {
+		trImagePath = tr.Spec.Image
 	}
 
 	if tr.Spec.EvaluationInterval == "" {
@@ -386,7 +389,7 @@ func makeStatefulSetSpec(tr *monitoringv1.ThanosRuler, config Config, ruleConfig
 	operatorContainers := append([]v1.Container{
 		{
 			Name:                     "thanos-ruler",
-			Image:                    tr.Spec.Image,
+			Image:                    trImagePath,
 			Args:                     trCLIArgs,
 			Env:                      trEnvVars,
 			VolumeMounts:             trVolumeMounts,

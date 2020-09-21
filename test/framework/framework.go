@@ -35,10 +35,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	certutil "k8s.io/client-go/util/cert"
 
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
-	monitoringclient "github.com/coreos/prometheus-operator/pkg/client/versioned/typed/monitoring/v1"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pkg/errors"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	monitoringclient "github.com/prometheus-operator/prometheus-operator/pkg/client/versioned/typed/monitoring/v1"
 )
 
 const (
@@ -226,6 +226,13 @@ func (f *Framework) CreatePrometheusOperator(ns, opImage string, namespaceAllowl
 		return nil, errors.Wrap(err, "initialize PodMonitor CRD")
 	}
 
+	err = f.CreateCRDAndWaitUntilReady(monitoringv1.ProbeName, func(opts metav1.ListOptions) (object runtime.Object, err error) {
+		return f.MonClientV1.Probes(v1.NamespaceAll).List(context.TODO(), opts)
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "initialize Probe CRD")
+	}
+
 	err = f.CreateCRDAndWaitUntilReady(monitoringv1.PrometheusName, func(opts metav1.ListOptions) (runtime.Object, error) {
 		return f.MonClientV1.Prometheuses(v1.NamespaceAll).List(context.TODO(), opts)
 	})
@@ -274,7 +281,7 @@ func (f *Framework) CreatePrometheusOperator(ns, opImage string, namespaceAllowl
 		for i, arg := range deploy.Spec.Template.Spec.Containers[0].Args {
 			if strings.Contains(arg, "--prometheus-config-reloader=") {
 				deploy.Spec.Template.Spec.Containers[0].Args[i] = "--prometheus-config-reloader=" +
-					"quay.io/coreos/prometheus-config-reloader:" +
+					"quay.io/prometheus-operator/prometheus-config-reloader:" +
 					repoAndTag[1]
 			}
 		}

@@ -21,7 +21,7 @@ import (
 	"os"
 	"testing"
 
-	operatorFramework "github.com/coreos/prometheus-operator/test/framework"
+	operatorFramework "github.com/prometheus-operator/prometheus-operator/test/framework"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 	opImage = flag.String(
 		"operator-image",
 		"",
-		"operator image, e.g. quay.io/coreos/prometheus-operator",
+		"operator image, e.g. quay.io/prometheus-operator/prometheus-operator",
 	)
 	flag.Parse()
 
@@ -159,6 +159,7 @@ func testAllNSAlertmanager(t *testing.T) {
 func testAllNSPrometheus(t *testing.T) {
 	skipPrometheusTests(t)
 	testFuncs := map[string]func(t *testing.T){
+		"PromRemoteWriteWithTLS":                 testPromRemoteWriteWithTLS,
 		"PromCreateDeleteCluster":                testPromCreateDeleteCluster,
 		"PromScaleUpDownCluster":                 testPromScaleUpDownCluster,
 		"PromNoServiceMonitorSelector":           testPromNoServiceMonitorSelector,
@@ -186,6 +187,7 @@ func testAllNSPrometheus(t *testing.T) {
 		"PromArbitraryFSAcc":                     testPromArbitraryFSAcc,
 		"PromTLSConfigViaSecret":                 testPromTLSConfigViaSecret,
 		"Thanos":                                 testThanos,
+		"PromStaticProbe":                        testPromStaticProbe,
 	}
 
 	for name, f := range testFuncs {

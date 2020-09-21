@@ -15,15 +15,15 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
     },
 
     versions+:: {
-      prometheusOperator: 'v0.40.0',
+      prometheusOperator: 'v0.42.0',
       prometheusConfigReloader: self.prometheusOperator,
-      configmapReloader: 'v0.3.0',
+      configmapReloader: 'v0.4.0',
     },
 
     imageRepos+:: {
-      prometheusOperator: 'quay.io/coreos/prometheus-operator',
+      prometheusOperator: 'quay.io/prometheus-operator/prometheus-operator',
       configmapReloader: 'jimmidyson/configmap-reload',
-      prometheusConfigReloader: 'quay.io/coreos/prometheus-config-reloader',
+      prometheusConfigReloader: 'quay.io/prometheus-operator/prometheus-config-reloader',
     },
   },
 
@@ -46,6 +46,7 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
     '0prometheusCustomResourceDefinition': import 'prometheus-crd.libsonnet',
     '0servicemonitorCustomResourceDefinition': import 'servicemonitor-crd.libsonnet',
     '0podmonitorCustomResourceDefinition': import 'podmonitor-crd.libsonnet',
+    '0probeCustomResourceDefinition': import 'probe-crd.libsonnet',
     '0prometheusruleCustomResourceDefinition': import 'prometheusrule-crd.libsonnet',
     '0thanosrulerCustomResourceDefinition': import 'thanosruler-crd.libsonnet',
 
@@ -75,6 +76,7 @@ local k = import 'ksonnet/ksonnet.beta.4/k.libsonnet';
                                'thanosrulers/finalizers',
                                'servicemonitors',
                                'podmonitors',
+                               'probes',
                                'prometheusrules',
                              ]) +
                              policyRule.withVerbs(['*']);

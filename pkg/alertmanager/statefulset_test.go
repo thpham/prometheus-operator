@@ -20,8 +20,8 @@ import (
 	"strings"
 	"testing"
 
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/coreos/prometheus-operator/pkg/operator"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus-operator/prometheus-operator/pkg/operator"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -126,6 +126,26 @@ func TestPodLabelsAnnotations(t *testing.T) {
 	}
 	if !reflect.DeepEqual(annotations, sset.Spec.Template.ObjectMeta.Annotations) {
 		t.Fatal("Pod annotaitons are not properly propagated")
+	}
+}
+
+func TestPodLabelsShouldNotBeSelectorLabels(t *testing.T) {
+	labels := map[string]string{
+		"testlabel": "testvalue",
+	}
+	sset, err := makeStatefulSet(&monitoringv1.Alertmanager{
+		ObjectMeta: metav1.ObjectMeta{},
+		Spec: monitoringv1.AlertmanagerSpec{
+			PodMetadata: &monitoringv1.EmbeddedObjectMetadata{
+				Labels: labels,
+			},
+		},
+	}, nil, defaultTestConfig)
+
+	require.NoError(t, err)
+
+	if sset.Spec.Selector.MatchLabels["testlabel"] == "testvalue" {
+		t.Fatal("Pod Selector are not properly propagated")
 	}
 }
 
@@ -649,6 +669,33 @@ func TestClusterListenAddressForSingleReplica(t *testing.T) {
 
 	if !containsEmptyClusterListenAddress {
 		t.Fatal("expected stateful set to contain arg '--cluster.listen-address='")
+	}
+}
+
+func TestClusterListenAddressForSingleReplicaWithForceEnableClusterMode(t *testing.T) {
+	a := monitoringv1.Alertmanager{}
+	replicas := int32(1)
+	a.Spec.Version = operator.DefaultAlertmanagerVersion
+	a.Spec.Replicas = &replicas
+	a.Spec.ForceEnableClusterMode = true
+
+	statefulSet, err := makeStatefulSetSpec(&a, defaultTestConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	amArgs := statefulSet.Template.Spec.Containers[0].Args
+
+	containsEmptyClusterListenAddress := false
+
+	for _, arg := range amArgs {
+		if arg == "--cluster.listen-address=" {
+			containsEmptyClusterListenAddress = true
+		}
+	}
+
+	if containsEmptyClusterListenAddress {
+		t.Fatal("expected stateful set to not contain arg '--cluster.listen-address='")
 	}
 }
 

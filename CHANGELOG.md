@@ -1,5 +1,48 @@
 ## Next release
 
+## 0.42.0 / 2020-09-09
+
+The Prometheus Operator now lives in its own indepent GitHub organization.  
+We have also added a governance (#3398).
+
+* [FEATURE] Move API types out into their own module (#3395)
+* [FEATURE] Create a monitoring mixin for prometheus-operator (#3333)
+* [ENHANCEMENT] Remove multilistwatcher and denylistfilter (#3440)
+* [ENHANCEMENT] Instrument client-go requests (#3465)
+* [ENHANCEMENT] pkg/prometheus: skip invalid service monitors (#3445)
+* [ENHANCEMENT] pkg/alertmanager: Use lower value for --cluster.reconnect-timeout (#3436)
+* [ENHANCEMENT] pkg/alertmanager: cleanup resources via OwnerReferences (#3423)
+* [ENHANCEMENT] Add prometheus_operator_reconcile_operations_total metric (#3415)
+* [ENHANCEMENT] pkg/operator/image.go: Adjust image path building (#3392)
+* [ENHANCEMENT] Specify timeouts per Alertmanager target when sending alerts. (#3385)
+* [ENHANCEMENT] Push container images to Quay into coreos and prometheus-operator orgs (#3390)
+* [ENHANCEMENT] Run single replica Alertmanager in HA cluster mode (#3382)
+* [BUGFIX] Fix validation logic for SecretOrConfigMap (#3413)
+* [BUGFIX] Don't overwrite __param_target (#3377)
+
+## 0.41.1 / 2020-08-12
+
+* [BUGFIX] Fix image url logic (#3402)
+
+## 0.41.0 / 2020-07-29
+
+* [CHANGE] Configmap-reload: Update to v0.4.0 (#3334)
+* [CHANGE] Update prometheus compatibility matrix to v2.19.2 (#3316)
+* [FEATURE] Add Synthetic Probes support. This includes support for job names. (#2832, #3318, #3312, #3306)
+* [FEATURE] Support Prometheus vertical compaction (#3281)
+* [ENHANCEMENT] pkg: Instrument resources being tracked by the operator (#3360)
+* [ENHANCEMENT] Add SecretListWatchSelector to reduce memory and CPU footprint (#3355)
+* [ENHANCEMENT] Added support for configuring CA, cert, and key via secret or configmap. (#3249)
+* [ENHANCEMENT] Consolidate image url logic, deprecating `baseImage`, `sha`, and `tag` in favor of `image` field in CRDs. (#3103, #3358)
+* [ENHANCEMENT] Decouple alertmanager pod labels from selector labels (#3317)
+* [ENHANCEMENT] pkg/prometheus: Ensure relabeling of container label in ServiceMonitors (#3315)
+* [ENHANCEMENT] misc: Remove v1beta1 crd remainings (#3311)
+* [ENHANCEMENT] Normalize default durations (#3308)
+* [ENHANCEMENT] pkg/prometheus: Allow enforcing namespace label in Probe configs (#3304)
+* [BUGFIX] Revert "Normalize default durations" (#3364)
+* [BUGFIX] Reload alertmanager on configmap/secret change (#3319)
+* [BUGFIX] listwatch: Do not duplicate resource versions (#3373)
+
 ## 0.40.0 / 2020-06-17
 
 * [CHANGE] Update dependencies to prometheus 2.18 (#3231)

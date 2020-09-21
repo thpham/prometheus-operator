@@ -30,11 +30,37 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	monitoringv1 "github.com/coreos/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/coreos/prometheus-operator/pkg/operator"
-	"github.com/coreos/prometheus-operator/pkg/prometheus"
 	"github.com/pkg/errors"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/prometheus-operator/prometheus-operator/pkg/operator"
+	"github.com/prometheus-operator/prometheus-operator/pkg/prometheus"
 )
+
+const (
+	SECRET    = 0
+	CONFIGMAP = 1
+)
+
+type Key struct {
+	Filename   string
+	SecretName string
+}
+
+type Cert struct {
+	Filename     string
+	ResourceName string
+	ResourceType int
+}
+
+type PromRemoteWriteTestConfig struct {
+	Name               string
+	ClientKey          Key
+	ClientCert         Cert
+	CA                 Cert
+	ExpectedInLogs     string
+	InsecureSkipVerify bool
+	ShouldSuccess      bool
+}
 
 func (f *Framework) MakeBasicPrometheus(ns, name, group string, replicas int32) *monitoringv1.Prometheus {
 	return &monitoringv1.Prometheus{
@@ -64,6 +90,69 @@ func (f *Framework) MakeBasicPrometheus(ns, name, group string, replicas int32) 
 			},
 		},
 	}
+}
+
+func (f *Framework) AddRemoteWriteWithTLSToPrometheus(p *monitoringv1.Prometheus,
+	url string, prwtc PromRemoteWriteTestConfig) {
+
+	p.Spec.RemoteWrite = []monitoringv1.RemoteWriteSpec{{
+		URL: url,
+	}}
+
+	if (prwtc.ClientKey.SecretName != "" && prwtc.ClientCert.ResourceName != "") || prwtc.CA.ResourceName != "" {
+
+		p.Spec.RemoteWrite[0].TLSConfig = &monitoringv1.TLSConfig{
+			ServerName: "caandserver.com",
+		}
+
+		if prwtc.ClientKey.SecretName != "" && prwtc.ClientCert.ResourceName != "" {
+			p.Spec.RemoteWrite[0].TLSConfig.KeySecret = &v1.SecretKeySelector{
+				LocalObjectReference: v1.LocalObjectReference{
+					Name: prwtc.ClientKey.SecretName,
+				},
+				Key: "key.pem",
+			}
+			p.Spec.RemoteWrite[0].TLSConfig.Cert = monitoringv1.SecretOrConfigMap{}
+
+			if prwtc.ClientCert.ResourceType == SECRET {
+				p.Spec.RemoteWrite[0].TLSConfig.Cert.Secret = &v1.SecretKeySelector{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: prwtc.ClientCert.ResourceName,
+					},
+					Key: "cert.pem",
+				}
+			} else { //certType == CONFIGMAP
+				p.Spec.RemoteWrite[0].TLSConfig.Cert.ConfigMap = &v1.ConfigMapKeySelector{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: prwtc.ClientCert.ResourceName,
+					},
+					Key: "cert.pem",
+				}
+			}
+		}
+
+		if prwtc.CA.ResourceName != "" {
+			p.Spec.RemoteWrite[0].TLSConfig.CA = monitoringv1.SecretOrConfigMap{}
+			if prwtc.CA.ResourceType == SECRET {
+				p.Spec.RemoteWrite[0].TLSConfig.CA.Secret = &v1.SecretKeySelector{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: prwtc.CA.ResourceName,
+					},
+					Key: "ca.pem",
+				}
+			} else { //caType == CONFIGMAP
+				p.Spec.RemoteWrite[0].TLSConfig.CA.ConfigMap = &v1.ConfigMapKeySelector{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: prwtc.CA.ResourceName,
+					},
+					Key: "ca.pem",
+				}
+			}
+		} else if prwtc.InsecureSkipVerify {
+			p.Spec.RemoteWrite[0].TLSConfig.InsecureSkipVerify = true
+		}
+	}
+
 }
 
 func (f *Framework) AddAlertingToPrometheus(p *monitoringv1.Prometheus, ns, name string) {
@@ -177,7 +266,7 @@ func (f *Framework) WaitForPrometheusReady(p *monitoringv1.Prometheus, timeout t
 	var pollErr error
 
 	err := wait.Poll(2*time.Second, timeout, func() (bool, error) {
-		st, _, pollErr := prometheus.PrometheusStatus(f.KubeClient, p)
+		st, _, pollErr := prometheus.PrometheusStatus(context.Background(), f.KubeClient, p)
 
 		if pollErr != nil {
 			return false, nil
@@ -235,7 +324,8 @@ func promImage(version string) string {
 	return fmt.Sprintf("quay.io/prometheus/prometheus:%s", version)
 }
 
-func (f *Framework) WaitForTargets(ns, svcName string, amount int) error {
+// WaitForActiveTargets waits for a number of targets to be configured.
+func (f *Framework) WaitForActiveTargets(ns, svcName string, amount int) error {
 	var targets []*Target
 
 	if err := wait.Poll(time.Second, time.Minute*5, func() (bool, error) {
@@ -251,7 +341,31 @@ func (f *Framework) WaitForTargets(ns, svcName string, amount int) error {
 
 		return false, nil
 	}); err != nil {
-		return fmt.Errorf("waiting for targets timed out. %v of %v targets found. %v", len(targets), amount, err)
+		return fmt.Errorf("waiting for active targets timed out. %v of %v active targets found. %v", len(targets), amount, err)
+	}
+
+	return nil
+}
+
+// WaitForHealthyTargets waits for a number of targets to be configured and
+// healthy.
+func (f *Framework) WaitForHealthyTargets(ns, svcName string, amount int) error {
+	var targets []*Target
+
+	if err := wait.Poll(time.Second, time.Minute*5, func() (bool, error) {
+		var err error
+		targets, err = f.GetHealthyTargets(ns, svcName)
+		if err != nil {
+			return false, err
+		}
+
+		if len(targets) == amount {
+			return true, nil
+		}
+
+		return false, nil
+	}); err != nil {
+		return fmt.Errorf("waiting for healthy targets timed out. %v of %v healthy targets found. %v", len(targets), amount, err)
 	}
 
 	return nil
@@ -357,6 +471,25 @@ func (f *Framework) GetActiveTargets(ns, svcName string) ([]*Target, error) {
 	return rt.Data.ActiveTargets, nil
 }
 
+func (f *Framework) GetHealthyTargets(ns, svcName string) ([]*Target, error) {
+	targets, err := f.GetActiveTargets(ns, svcName)
+	if err != nil {
+		return nil, err
+	}
+
+	healthyTargets := make([]*Target, 0, len(targets))
+	for _, target := range targets {
+		switch target.Health {
+		case healthGood:
+			healthyTargets = append(healthyTargets, target)
+		case healthBad:
+			return nil, errors.New(target.LastError)
+		}
+	}
+
+	return healthyTargets, nil
+}
+
 func (f *Framework) CheckPrometheusFiringAlert(ns, svcName, alertName string) (bool, error) {
 	response, err := f.PrometheusSVCGetRequest(
 		ns,
@@ -405,9 +538,18 @@ func (f *Framework) WaitForPrometheusFiringAlert(ns, svcName, alertName string) 
 	return nil
 }
 
+type targetHealth string
+
+const (
+	healthGood targetHealth = "up"
+	healthBad  targetHealth = "down"
+)
+
 type Target struct {
 	ScrapeURL string            `json:"scrapeUrl"`
 	Labels    map[string]string `json:"labels"`
+	LastError string            `json:"lastError"`
+	Health    targetHealth      `json:"health"`
 }
 
 type targetDiscovery struct {

@@ -1,6 +1,6 @@
 <br>
 <div class="alert alert-info" role="alert">
-    <i class="fa fa-exclamation-triangle"></i><b> Note:</b> Starting with v0.12.0, Prometheus Operator requires use of Kubernetes v1.7.x and up.
+    <i class="fa fa-exclamation-triangle"></i><b> Note:</b> Starting with v0.39.0, Prometheus Operator requires use of Kubernetes v1.16.x and up.
 </div>
 
 # API Docs
@@ -27,6 +27,13 @@ This Document documents the types introduced by the Prometheus Operator to be co
 * [PodMonitor](#podmonitor)
 * [PodMonitorList](#podmonitorlist)
 * [PodMonitorSpec](#podmonitorspec)
+* [Probe](#probe)
+* [ProbeList](#probelist)
+* [ProbeSpec](#probespec)
+* [ProbeTargetIngress](#probetargetingress)
+* [ProbeTargetStaticConfig](#probetargetstaticconfig)
+* [ProbeTargets](#probetargets)
+* [ProberSpec](#proberspec)
 * [Prometheus](#prometheus)
 * [PrometheusList](#prometheuslist)
 * [PrometheusRule](#prometheusrule)
@@ -106,6 +113,7 @@ AlertmanagerEndpoints defines a selection of a single Endpoints object containin
 | tlsConfig | TLS Config to use for alertmanager connection. | *[TLSConfig](#tlsconfig) | false |
 | bearerTokenFile | BearerTokenFile to read from filesystem to use when authenticating to Alertmanager. | string | false |
 | apiVersion | Version of the Alertmanager API that Prometheus uses to send alerts. It can be \"v1\" or \"v2\". | string | false |
+| timeout | Timeout is a per-target Alertmanager timeout when pushing alerts. | *string | false |
 
 [Back to TOC](#table-of-contents)
 
@@ -129,9 +137,9 @@ AlertmanagerSpec is a specification of the desired behavior of the Alertmanager 
 | podMetadata | PodMetadata configures Labels and Annotations which are propagated to the alertmanager pods. | *[EmbeddedObjectMetadata](#embeddedobjectmetadata) | false |
 | image | Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Alertmanager is being configured. | *string | false |
 | version | Version the cluster should be on. | string | false |
-| tag | Tag of Alertmanager container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. | string | false |
-| sha | SHA of Alertmanager container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. | string | false |
-| baseImage | Base image that is used to deploy pods, without tag. | string | false |
+| tag | Tag of Alertmanager container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. Deprecated: use 'image' instead.  The image tag can be specified as part of the image URL. | string | false |
+| sha | SHA of Alertmanager container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. Deprecated: use 'image' instead.  The image digest can be specified as part of the image URL. | string | false |
+| baseImage | Base image that is used to deploy pods, without tag. Deprecated: use 'image' instead | string | false |
 | imagePullSecrets | An optional list of references to secrets in the same namespace to use for pulling prometheus and alertmanager images from registries see http://kubernetes.io/docs/user-guide/images#specifying-imagepullsecrets-on-a-pod | [][v1.LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#localobjectreference-v1-core) | false |
 | secrets | Secrets is a list of Secrets in the same namespace as the Alertmanager object, which shall be mounted into the Alertmanager Pods. The Secrets are mounted into /etc/alertmanager/secrets/<secret-name>. | []string | false |
 | configMaps | ConfigMaps is a list of ConfigMaps in the same namespace as the Alertmanager object, which shall be mounted into the Alertmanager Pods. The ConfigMaps are mounted into /etc/alertmanager/configmaps/<configmap-name>. | []string | false |
@@ -159,6 +167,7 @@ AlertmanagerSpec is a specification of the desired behavior of the Alertmanager 
 | additionalPeers | AdditionalPeers allows injecting a set of additional Alertmanagers to peer with to form a highly available cluster. | []string | false |
 | clusterAdvertiseAddress | ClusterAdvertiseAddress is the explicit address to advertise in cluster. Needs to be provided for non RFC1918 [1] (public) addresses. [1] RFC1918: https://tools.ietf.org/html/rfc1918 | string | false |
 | portName | Port name used for the pods and governing service. This defaults to web | string | false |
+| forceEnableClusterMode | ForceEnableClusterMode ensures Alertmanager does not deactivate the cluster mode when running with a single replica. Use case is e.g. spanning an Alertmanager cluster across Kubernetes clusters with a single replica in each. | bool | false |
 
 [Back to TOC](#table-of-contents)
 
@@ -228,7 +237,7 @@ Endpoint defines a scrapeable endpoint serving Prometheus metrics.
 | Field | Description | Scheme | Required |
 | ----- | ----------- | ------ | -------- |
 | port | Name of the service port this endpoint refers to. Mutually exclusive with targetPort. | string | false |
-| targetPort | Name or number of the pod port this endpoint refers to. Mutually exclusive with port. | *intstr.IntOrString | false |
+| targetPort | Name or number of the target port of the Pod behind the Service, the port must be specified with container port property. Mutually exclusive with port. | *intstr.IntOrString | false |
 | path | HTTP path to scrape for metrics. | string | false |
 | scheme | HTTP scheme to use for scraping. | string | false |
 | params | Optional HTTP URL parameters | map[string][]string | false |
@@ -315,6 +324,89 @@ PodMonitorSpec contains specification parameters for a PodMonitor.
 
 [Back to TOC](#table-of-contents)
 
+## Probe
+
+Probe defines monitoring for a set of static targets or ingresses.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| metadata |  | [metav1.ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#objectmeta-v1-meta) | false |
+| spec | Specification of desired Ingress selection for target discovery by Prometheus. | [ProbeSpec](#probespec) | true |
+
+[Back to TOC](#table-of-contents)
+
+## ProbeList
+
+ProbeList is a list of Probes.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| metadata | Standard list metadata More info: https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata | [metav1.ListMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#listmeta-v1-meta) | false |
+| items | List of Probes | []*[Probe](#probe) | true |
+
+[Back to TOC](#table-of-contents)
+
+## ProbeSpec
+
+ProbeSpec contains specification parameters for a Probe.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| jobName | The job name assigned to scraped metrics by default. | string | false |
+| prober | Specification for the prober to use for probing targets. The prober.URL parameter is required. Targets cannot be probed if left empty. | [ProberSpec](#proberspec) | false |
+| module | The module to use for probing specifying how to probe the target. Example module configuring in the blackbox exporter: https://github.com/prometheus/blackbox_exporter/blob/master/example.yml | string | false |
+| targets | Targets defines a set of static and/or dynamically discovered targets to be probed using the prober. | [ProbeTargets](#probetargets) | false |
+| interval | Interval at which targets are probed using the configured prober. If not specified Prometheus' global scrape interval is used. | string | false |
+| scrapeTimeout | Timeout for scraping metrics from the Prometheus exporter. | string | false |
+
+[Back to TOC](#table-of-contents)
+
+## ProbeTargetIngress
+
+ProbeTargetIngress defines the set of Ingress objects considered for probing.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| selector | Select Ingress objects by labels. | [metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
+| namespaceSelector | Select Ingress objects by namespace. | [NamespaceSelector](#namespaceselector) | false |
+| relabelingConfigs | RelabelConfigs to apply to samples before ingestion. More info: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config | []*[RelabelConfig](#relabelconfig) | false |
+
+[Back to TOC](#table-of-contents)
+
+## ProbeTargetStaticConfig
+
+ProbeTargetStaticConfig defines the set of static targets considered for probing.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| static | Targets is a list of URLs to probe using the configured prober. | []string | false |
+| labels | Labels assigned to all metrics scraped from the targets. | map[string]string | false |
+
+[Back to TOC](#table-of-contents)
+
+## ProbeTargets
+
+ProbeTargets defines a set of static and dynamically discovered targets for the prober.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| staticConfig | StaticConfig defines static targets which are considers for probing. More info: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#static_config. | *[ProbeTargetStaticConfig](#probetargetstaticconfig) | false |
+| ingress | Ingress defines the set of dynamically discovered ingress objects which hosts are considered for probing. | *[ProbeTargetIngress](#probetargetingress) | false |
+
+[Back to TOC](#table-of-contents)
+
+## ProberSpec
+
+ProberSpec contains specification parameters for the Prober used for probing.
+
+| Field | Description | Scheme | Required |
+| ----- | ----------- | ------ | -------- |
+| url | Mandatory URL of the prober. | string | true |
+| scheme | HTTP scheme to use for scraping. Defaults to `http`. | string | false |
+| path | Path to collect metrics from. Defaults to `/probe`. | string | false |
+
+[Back to TOC](#table-of-contents)
+
 ## Prometheus
 
 Prometheus defines a Prometheus deployment.
@@ -392,12 +484,14 @@ PrometheusSpec is a specification of the desired behavior of the Prometheus clus
 | serviceMonitorNamespaceSelector | Namespaces to be selected for ServiceMonitor discovery. If nil, only check own namespace. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
 | podMonitorSelector | *Experimental* PodMonitors to be selected for target discovery. *Deprecated:* if neither this nor serviceMonitorSelector are specified, configuration is unmanaged. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
 | podMonitorNamespaceSelector | Namespaces to be selected for PodMonitor discovery. If nil, only check own namespace. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
+| probeSelector | *Experimental* Probes to be selected for target discovery. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
+| probeNamespaceSelector | *Experimental* Namespaces to be selected for Probe discovery. If nil, only check own namespace. | *[metav1.LabelSelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#labelselector-v1-meta) | false |
 | version | Version of Prometheus to be deployed. | string | false |
-| tag | Tag of Prometheus container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. | string | false |
-| sha | SHA of Prometheus container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. | string | false |
+| tag | Tag of Prometheus container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. Deprecated: use 'image' instead.  The image tag can be specified as part of the image URL. | string | false |
+| sha | SHA of Prometheus container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. Deprecated: use 'image' instead.  The image digest can be specified as part of the image URL. | string | false |
 | paused | When a Prometheus deployment is paused, no actions except for deletion will be performed on the underlying objects. | bool | false |
 | image | Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Prometheus is being configured. | *string | false |
-| baseImage | Base image to use for a Prometheus deployment. | string | false |
+| baseImage | Base image to use for a Prometheus deployment. Deprecated: use 'image' instead | string | false |
 | imagePullSecrets | An optional list of references to secrets in the same namespace to use for pulling prometheus and alertmanager images from registries see http://kubernetes.io/docs/user-guide/images#specifying-imagepullsecrets-on-a-pod | [][v1.LocalObjectReference](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#localobjectreference-v1-core) | false |
 | replicas | Number of instances to deploy for a Prometheus deployment. | *int32 | false |
 | replicaExternalLabelName | Name of Prometheus external label used to denote replica name. Defaults to the value of `prometheus_replica`. External label will _not_ be added when value is set to empty string (`\"\"`). | *string | false |
@@ -451,6 +545,7 @@ PrometheusSpec is a specification of the desired behavior of the Prometheus clus
 | prometheusRulesExcludedFromEnforce | PrometheusRulesExcludedFromEnforce - list of prometheus rules to be excluded from enforcing of adding namespace labels. Works only if enforcedNamespaceLabel set to true. Make sure both ruleNamespace and ruleName are set for each pair | [][PrometheusRuleExcludeConfig](#prometheusruleexcludeconfig) | false |
 | queryLogFile | QueryLogFile specifies the file to which PromQL queries are logged. Note that this location must be writable, and can be persisted using an attached volume. Alternatively, the location can be set to a stdout location such as `/dev/stdout` to log querie information to the default Prometheus log stream. This is only available in versions of Prometheus >= 2.16.0. For more details, see the Prometheus docs (https://prometheus.io/docs/guides/query-log/) | string | false |
 | enforcedSampleLimit | EnforcedSampleLimit defines global limit on number of scraped samples that will be accepted. This overrides any SampleLimit set per ServiceMonitor or/and PodMonitor. It is meant to be used by admins to enforce the SampleLimit to keep overall number of samples/series under the desired limit. Note that if SampleLimit is lower that value will be taken instead. | *uint64 | false |
+| allowOverlappingBlocks | AllowOverlappingBlocks enables vertical compaction and vertical query merge in Prometheus. This is still experimental in Prometheus so it may change in any upcoming release. | bool | false |
 
 [Back to TOC](#table-of-contents)
 
@@ -688,9 +783,9 @@ ThanosSpec defines parameters for a Prometheus server within a Thanos deployment
 | ----- | ----------- | ------ | -------- |
 | image | Image if specified has precedence over baseImage, tag and sha combinations. Specifying the version is still necessary to ensure the Prometheus Operator knows what version of Thanos is being configured. | *string | false |
 | version | Version describes the version of Thanos to use. | *string | false |
-| tag | Tag of Thanos sidecar container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. | *string | false |
-| sha | SHA of Thanos container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. | *string | false |
-| baseImage | Thanos base image if other than default. | *string | false |
+| tag | Tag of Thanos sidecar container image to be deployed. Defaults to the value of `version`. Version is ignored if Tag is set. Deprecated: use 'image' instead.  The image tag can be specified as part of the image URL. | *string | false |
+| sha | SHA of Thanos container image to be deployed. Defaults to the value of `version`. Similar to a tag, but the SHA explicitly deploys an immutable container image. Version and Tag are ignored if SHA is set. Deprecated: use 'image' instead.  The image digest can be specified as part of the image URL. | *string | false |
+| baseImage | Thanos base image if other than default. Deprecated: use 'image' instead | *string | false |
 | resources | Resources defines the resource requirements for the Thanos sidecar. If not provided, no requests/limits will be set | [v1.ResourceRequirements](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#resourcerequirements-v1-core) | false |
 | objectStorageConfig | ObjectStorageConfig configures object storage in Thanos. | *[v1.SecretKeySelector](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.17/#secretkeyselector-v1-core) | false |
 | listenLocal | ListenLocal makes the Thanos sidecar listen on loopback, so that it does not bind against the Pod IP. | bool | false |

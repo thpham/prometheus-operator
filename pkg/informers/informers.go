@@ -15,8 +15,8 @@
 package informers
 
 import (
-	"github.com/coreos/prometheus-operator/pkg/listwatch"
 	"github.com/pkg/errors"
+	"github.com/prometheus-operator/prometheus-operator/pkg/listwatch"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"

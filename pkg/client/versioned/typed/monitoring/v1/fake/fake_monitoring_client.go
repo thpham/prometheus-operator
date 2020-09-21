@@ -17,7 +17,7 @@
 package fake
 
 import (
-	v1 "github.com/coreos/prometheus-operator/pkg/client/versioned/typed/monitoring/v1"
+	v1 "github.com/prometheus-operator/prometheus-operator/pkg/client/versioned/typed/monitoring/v1"
 	rest "k8s.io/client-go/rest"
 	testing "k8s.io/client-go/testing"
 )
@@ -32,6 +32,10 @@ func (c *FakeMonitoringV1) Alertmanagers(namespace string) v1.AlertmanagerInterf
 
 func (c *FakeMonitoringV1) PodMonitors(namespace string) v1.PodMonitorInterface {
 	return &FakePodMonitors{c, namespace}
+}
+
+func (c *FakeMonitoringV1) Probes(namespace string) v1.ProbeInterface {
+	return &FakeProbes{c, namespace}
 }
 
 func (c *FakeMonitoringV1) Prometheuses(namespace string) v1.PrometheusInterface {
